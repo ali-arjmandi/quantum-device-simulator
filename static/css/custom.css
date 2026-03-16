@@ -1,0 +1,10 @@
+/* Fix white section at bottom: match theme background and fill viewport */
+html,
+body {
+  min-height: 100vh;
+  background: #000000;
+}
+
+.container-scroller {
+  min-height: 100vh;
+}

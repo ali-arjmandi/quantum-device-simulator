@@ -1,0 +1,17 @@
+<!-- plugins:js -->
+<script src="{{ url_for('static', filename='vendors/js/vendor.bundle.base.js') }}"></script>
+<!-- endinject -->
+<!-- Plugin js for this page -->
+<script src="{{ url_for('static', filename='vendors/jvectormap/jquery-jvectormap.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendors/jvectormap/jquery-jvectormap-world-mill-en.js') }}"></script>
+<!-- End plugin js for this page -->
+<!-- inject:js -->
+<script src="{{ url_for('static', filename='js/off-canvas.js') }}"></script>
+<script src="{{ url_for('static', filename='js/misc.js') }}"></script>
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+<script src="{{ url_for('static', filename='js/todolist.js') }}"></script>
+<!-- endinject -->
+<!-- Custom js for this page -->
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+<!-- End custom js for this page -->
+{% block scripts %}{% endblock %}
