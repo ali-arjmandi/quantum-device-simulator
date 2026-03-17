@@ -30,16 +30,10 @@
               <select class="form-control" id="connection_type" name="connection_type">
                 <option value="Serial">Serial</option>
                 <option value="TCP/IP">TCP/IP</option>
-                <option value="USB">USB</option>
-                <option value="I2C">I2C</option>
-                <option value="SPI">SPI</option>
               </select>
             </div>
             {% set _s = (sample_params_by_type or {}).get('Serial') or {} %}
             {% set _t = (sample_params_by_type or {}).get('TCP/IP') or {} %}
-            {% set _u = (sample_params_by_type or {}).get('USB') or {} %}
-            {% set _i = (sample_params_by_type or {}).get('I2C') or {} %}
-            {% set _p = (sample_params_by_type or {}).get('SPI') or {} %}
             <div class="form-group">
               <label class="d-block">Connection details</label>
               <div class="connection-details-block border rounded p-3 mb-0" data-connection-type="Serial">
@@ -84,66 +78,6 @@
                 <div class="form-group mb-0">
                   <label for="conn_tcp_port">Port</label>
                   <input type="number" class="form-control" id="conn_tcp_port" name="conn_tcp_port" placeholder="e.g. 502" min="1" max="65535" value="{{ _t.get('port', '') }}">
-                </div>
-              </div>
-              <div class="connection-details-block border rounded p-3 mb-0 d-none" data-connection-type="USB">
-                <div class="form-group mb-2">
-                  <label for="conn_vendor_id">Vendor ID (hex)</label>
-                  <input type="text" class="form-control" id="conn_vendor_id" name="conn_vendor_id" placeholder="e.g. 0x1234" value="{{ _u.get('vendor_id', '') }}">
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_product_id">Product ID (hex)</label>
-                  <input type="text" class="form-control" id="conn_product_id" name="conn_product_id" placeholder="e.g. 0x5678" value="{{ _u.get('product_id', '') }}">
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_bus">Bus (optional)</label>
-                  <input type="text" class="form-control" id="conn_bus" name="conn_bus" placeholder="e.g. 001" value="{{ _u.get('bus', '') }}">
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_device_path">Device path (optional)</label>
-                  <input type="text" class="form-control" id="conn_device_path" name="conn_device_path" placeholder="e.g. /dev/bus/usb/001/002" value="{{ _u.get('device_path', '') }}">
-                </div>
-                <div class="form-group mb-0">
-                  <label for="conn_serial_number">Serial number (optional)</label>
-                  <input type="text" class="form-control" id="conn_serial_number" name="conn_serial_number" placeholder="Device serial" value="{{ _u.get('serial_number', '') }}">
-                </div>
-              </div>
-              <div class="connection-details-block border rounded p-3 mb-0 d-none" data-connection-type="I2C">
-                <div class="form-group mb-2">
-                  <label for="conn_i2c_bus">Bus number</label>
-                  <input type="number" class="form-control" id="conn_i2c_bus" name="conn_i2c_bus" placeholder="e.g. 0, 1" min="0" value="{{ _i.get('bus', '') }}">
-                </div>
-                <div class="form-group mb-0">
-                  <label for="conn_i2c_address">Device address (7-bit hex)</label>
-                  <input type="text" class="form-control" id="conn_i2c_address" name="conn_i2c_address" placeholder="e.g. 0x48" value="{{ _i.get('device_address', '') }}">
-                </div>
-              </div>
-              <div class="connection-details-block border rounded p-3 mb-0 d-none" data-connection-type="SPI">
-                <div class="form-group mb-2">
-                  <label for="conn_spi_bus">Bus</label>
-                  <input type="text" class="form-control" id="conn_spi_bus" name="conn_spi_bus" placeholder="e.g. 0" value="{{ _p.get('bus', '') }}">
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_spi_cs">Chip select (CS)</label>
-                  <input type="text" class="form-control" id="conn_spi_cs" name="conn_spi_cs" placeholder="e.g. 0" value="{{ _p.get('chip_select', '') }}">
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_spi_mode">Mode (0–3)</label>
-                  <select class="form-control" id="conn_spi_mode" name="conn_spi_mode">
-                    <option value="">—</option>
-                    <option value="0" {{ 'selected' if _p.get('mode') == 0 else '' }}>0</option>
-                    <option value="1" {{ 'selected' if _p.get('mode') == 1 else '' }}>1</option>
-                    <option value="2" {{ 'selected' if _p.get('mode') == 2 else '' }}>2</option>
-                    <option value="3" {{ 'selected' if _p.get('mode') == 3 else '' }}>3</option>
-                  </select>
-                </div>
-                <div class="form-group mb-2">
-                  <label for="conn_spi_max_speed">Max speed (Hz, optional)</label>
-                  <input type="number" class="form-control" id="conn_spi_max_speed" name="conn_spi_max_speed" placeholder="e.g. 1000000" min="0" value="{{ _p.get('max_speed', '') }}">
-                </div>
-                <div class="form-group mb-0">
-                  <label for="conn_spi_bit_order">Bit order (optional)</label>
-                  <input type="text" class="form-control" id="conn_spi_bit_order" name="conn_spi_bit_order" placeholder="msb or lsb" value="{{ _p.get('bit_order', '') }}">
                 </div>
               </div>
             </div>

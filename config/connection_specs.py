@@ -1,14 +1,14 @@
 """Connection-type-specific field definitions and form parsing.
 
 Builds and validates device.metadata["connection_params"] from request.form
-for each connection type (Serial, TCP/IP, USB, I2C, SPI).
+for each connection type (Serial, TCP/IP).
 Provides random valid sample params for the create-device form.
 """
 import random
 from typing import Any
 
 # Connection type values as used in forms and Device.connection_type
-CONNECTION_TYPES = ("Serial", "TCP/IP", "USB", "I2C", "SPI")
+CONNECTION_TYPES = ("Serial", "TCP/IP")
 
 # Per-type: list of (form_field_name, param_key, type_coerce, required)
 # param_key = key in connection_params dict; type_coerce = callable or None (str)
@@ -40,33 +40,9 @@ TCP_SPEC = [
     ("conn_tcp_port", "port", lambda s: _int(s) if s else None, True),
 ]
 
-USB_SPEC = [
-    ("conn_vendor_id", "vendor_id", _str, True),
-    ("conn_product_id", "product_id", _str, True),
-    ("conn_bus", "bus", _str, False),
-    ("conn_device_path", "device_path", _str, False),
-    ("conn_serial_number", "serial_number", _str, False),
-]
-
-I2C_SPEC = [
-    ("conn_i2c_bus", "bus", lambda s: _int(s) if s else None, True),
-    ("conn_i2c_address", "device_address", lambda s: _int(s) if s else None, False),
-]
-
-SPI_SPEC = [
-    ("conn_spi_bus", "bus", _str, True),
-    ("conn_spi_cs", "chip_select", _str, True),
-    ("conn_spi_mode", "mode", lambda s: _int(s) if s is not None and str(s).strip() != "" else None, True),
-    ("conn_spi_max_speed", "max_speed", lambda s: _int(s) if s else None, False),
-    ("conn_spi_bit_order", "bit_order", _str, False),
-]
-
 SPEC_BY_TYPE = {
     "Serial": SERIAL_SPEC,
     "TCP/IP": TCP_SPEC,
-    "USB": USB_SPEC,
-    "I2C": I2C_SPEC,
-    "SPI": SPI_SPEC,
 }
 
 
@@ -117,14 +93,6 @@ def validate_connection_params(connection_type: str, params: dict[str, Any]) -> 
         stop_bits = params.get("stop_bits")
         if stop_bits is not None and stop_bits not in (1, 2, None):
             errors.append("Stop bits must be 1 or 2")
-    if connection_type == "I2C":
-        addr = params.get("device_address")
-        if addr is not None and isinstance(addr, int) and (addr < 0x03 or addr > 0x77):
-            errors.append("I2C device address must be between 0x03 and 0x77 (7-bit)")
-    if connection_type == "SPI":
-        mode = params.get("mode")
-        if mode is not None and (not isinstance(mode, int) or mode < 0 or mode > 3):
-            errors.append("SPI mode must be 0, 1, 2, or 3")
     return errors
 
 
@@ -148,29 +116,6 @@ def generate_sample_connection_params(connection_type: str) -> dict[str, Any]:
             "host": f"192.168.{octet()}.{octet()}",
             "port": random.randint(1024, 65535),
         }
-    if connection_type == "USB":
-        vid = random.randint(0x0403, 0xFFFF)
-        pid = random.randint(0x6001, 0xFFFF)
-        return {
-            "vendor_id": f"0x{vid:04X}",
-            "product_id": f"0x{pid:04X}",
-            "bus": f"{random.randint(1, 8):03d}",
-            "device_path": f"/dev/bus/usb/{random.randint(1, 8):03d}/{random.randint(1, 128):03d}",
-            "serial_number": f"SN{random.randint(10000, 99999)}",
-        }
-    if connection_type == "I2C":
-        return {
-            "bus": random.randint(0, 1),
-            "device_address": random.randint(0x03, 0x77),
-        }
-    if connection_type == "SPI":
-        return {
-            "bus": str(random.randint(0, 1)),
-            "chip_select": str(random.randint(0, 2)),
-            "mode": random.randint(0, 3),
-            "max_speed": random.choice([500000, 1000000, 2000000, 4000000]),
-            "bit_order": random.choice(["msb", "lsb"]),
-        }
     return {}
 
 
@@ -190,7 +135,7 @@ def get_all_sample_connection_params() -> dict[str, dict[str, Any]]:
 def format_connection_summary(connection_type: str, connection_params: dict[str, Any] | None) -> str:
     """Return a short human-readable summary for the device list.
 
-    Examples: "COM3 @ 115200", "192.168.1.10:502", "0x1234:0x5678".
+    Examples: "COM3 @ 115200", "192.168.1.10:502".
     Returns "—" when connection_params is missing or empty.
     """
     if not connection_params:
@@ -207,37 +152,4 @@ def format_connection_summary(connection_type: str, connection_params: dict[str,
         if host and port is not None:
             return f"{host}:{port}"
         return host or "—"
-    if connection_type == "USB":
-        vid = connection_params.get("vendor_id") or ""
-        pid = connection_params.get("product_id") or ""
-        if vid and pid:
-            return f"{vid}:{pid}"
-        path = connection_params.get("device_path") or ""
-        if path:
-            return path
-        return vid or pid or "—"
-    if connection_type == "I2C":
-        bus = connection_params.get("bus")
-        addr = connection_params.get("device_address")
-        parts = []
-        if bus is not None:
-            parts.append(f"I2C-{bus}")
-        if addr is not None:
-            parts.append(f"0x{addr:02X}" if isinstance(addr, int) else str(addr))
-        return " @ ".join(parts) if parts else "—"
-    if connection_type == "SPI":
-        bus = connection_params.get("bus") or ""
-        cs = connection_params.get("chip_select") or ""
-        mode = connection_params.get("mode")
-        speed = connection_params.get("max_speed")
-        parts = []
-        if bus:
-            parts.append(f"SPI-{bus}")
-        if cs:
-            parts.append(f"CS{cs}")
-        if mode is not None:
-            parts.append(f"mode {mode}")
-        if speed is not None:
-            parts.append(f"{speed} Hz")
-        return " ".join(parts) if parts else "—"
     return "—"

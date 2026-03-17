@@ -5,11 +5,11 @@ from typing import Optional
 
 @dataclass
 class Connection:
-    """Represents a connection to a device (Serial, TCP, USB, I2C, SPI, etc.)."""
+    """Represents a connection to a device (Serial or TCP/IP)."""
 
     id: str
     device_id: str
-    connection_type: str  # e.g. "serial", "tcp", "usb", "i2c", "spi"
+    connection_type: str  # e.g. "Serial", "TCP/IP"
     address: str  # port, host:port, path, etc.
     connected: bool = False
     metadata: Optional[dict] = None
