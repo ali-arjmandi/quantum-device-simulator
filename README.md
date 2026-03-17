@@ -251,7 +251,7 @@ Key modules:
 
 ## 7. Running the project
 
-### 7.1 Quick test with Docker (recommended)
+### 7.1 Quick test with Docker
 
 The easiest way to run the app is with Docker. You do not need to install Python or manage dependencies.
 
@@ -275,7 +275,7 @@ docker run -p 5555:5555 -v ./data:/app/data YOUR_IMAGE_NAME:1.0.0
 
 Replace `YOUR_IMAGE_NAME` with the full image name (e.g. `ghcr.io/yourusername/quantum-device-simulator` or `yourusername/quantum-device-simulator`). Then open **http://localhost:5555**.
 
-### 7.2 Run locally (development)
+### 7.2 Run locally (recommended/development)
 
 If you prefer to run without Docker:
 
