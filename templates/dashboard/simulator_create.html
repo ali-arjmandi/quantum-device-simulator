@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Create device | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Create device</h1>
+
+  <div class="row">
+    <div class="col-md-6 col-lg-5">
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h4 class="card-title mb-0">New device</h4>
+          <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-outline-secondary btn-sm">Back to devices</a>
+        </div>
+        <div class="card-body">
+          <form action="{{ url_for('dashboard.add_device') }}" method="post">
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" class="form-control" id="name" name="name" placeholder="Device name" required>
+            </div>
+            <div class="form-group">
+              <label for="device_type">Device type</label>
+              <select class="form-control" id="device_type" name="device_type">
+                <option value="sensor">Sensor</option>
+                <option value="actuator">Actuator</option>
+                <option value="satellite payload">Satellite payload</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="connection_type">Connection type</label>
+              <select class="form-control" id="connection_type" name="connection_type">
+                <option value="Serial">Serial</option>
+                <option value="TCP/IP">TCP/IP</option>
+              </select>
+            </div>
+            {% set _s = (sample_params_by_type or {}).get('Serial') or {} %}
+            {% set _t = (sample_params_by_type or {}).get('TCP/IP') or {} %}
+            <div class="form-group">
+              <label class="d-block">Connection details</label>
+              <div class="connection-details-block border rounded p-3 mb-0" data-connection-type="Serial">
+                <div class="form-group mb-2">
+                  <label for="conn_port">Port</label>
+                  <input type="text" class="form-control" id="conn_port" name="conn_port" placeholder="e.g. COM3, /dev/ttyUSB0" value="{{ _s.get('port', '') }}">
+                </div>
+                <div class="form-group mb-2">
+                  <label for="conn_baud_rate">Baud rate</label>
+                  <input type="number" class="form-control" id="conn_baud_rate" name="conn_baud_rate" placeholder="e.g. 9600, 115200" min="1" max="921600" value="{{ _s.get('baud_rate', '') }}">
+                </div>
+                <div class="form-group mb-2">
+                  <label for="conn_data_bits">Data bits</label>
+                  <select class="form-control" id="conn_data_bits" name="conn_data_bits">
+                    <option value="">—</option>
+                    <option value="7" {{ 'selected' if _s.get('data_bits') == 7 else '' }}>7</option>
+                    <option value="8" {{ 'selected' if _s.get('data_bits') == 8 else '' }}>8</option>
+                  </select>
+                </div>
+                <div class="form-group mb-2">
+                  <label for="conn_stop_bits">Stop bits</label>
+                  <select class="form-control" id="conn_stop_bits" name="conn_stop_bits">
+                    <option value="">—</option>
+                    <option value="1" {{ 'selected' if _s.get('stop_bits') == 1 else '' }}>1</option>
+                    <option value="2" {{ 'selected' if _s.get('stop_bits') == 2 else '' }}>2</option>
+                  </select>
+                </div>
+                <div class="form-group mb-0">
+                  <label for="conn_parity">Parity</label>
+                  <select class="form-control" id="conn_parity" name="conn_parity">
+                    <option value="" {{ 'selected' if _s.get('parity') == '' or _s.get('parity') is none else '' }}>None</option>
+                    <option value="Even" {{ 'selected' if _s.get('parity') == 'Even' else '' }}>Even</option>
+                    <option value="Odd" {{ 'selected' if _s.get('parity') == 'Odd' else '' }}>Odd</option>
+                  </select>
+                </div>
+              </div>
+              <div class="connection-details-block border rounded p-3 mb-0 d-none" data-connection-type="TCP/IP">
+                <div class="form-group mb-2">
+                  <label for="conn_host">Host</label>
+                  <input type="text" class="form-control" id="conn_host" name="conn_host" value="127.0.0.1" readonly>
+                  <small class="form-text text-muted">Simulation uses localhost only.</small>
+                </div>
+                <div class="form-group mb-0">
+                  <label for="conn_tcp_port">Port</label>
+                  <input type="number" class="form-control" id="conn_tcp_port" name="conn_tcp_port" placeholder="e.g. 502" min="1" max="65535" value="{{ _t.get('port', '') }}">
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="powered_on" name="powered_on" value="on">
+                <label class="form-check-label" for="powered_on">Start powered on</label>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Add device</button>
+            <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-secondary">Cancel</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var connectionType = document.getElementById('connection_type');
+      var blocks = document.querySelectorAll('.connection-details-block');
+      function updateVisibility() {
+        var value = connectionType.value;
+        blocks.forEach(function (block) {
+          if (block.getAttribute('data-connection-type') === value) {
+            block.classList.remove('d-none');
+          } else {
+            block.classList.add('d-none');
+          }
+        });
+      }
+      connectionType.addEventListener('change', updateVisibility);
+      updateVisibility();
+    })();
+  </script>
+{% endblock %}
+

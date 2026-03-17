@@ -39,10 +39,18 @@ def index():
 def simulator():
     """Device simulator (admin) page with device list."""
     devices = get_all_devices()
-    sample_params_by_type = get_all_sample_connection_params()
     return render_template(
         "dashboard/simulator.html",
         devices=devices,
+    )
+
+
+@bp.route("/simulator/device/new", methods=["GET"])
+def new_device():
+    """Show create-device form."""
+    sample_params_by_type = get_all_sample_connection_params()
+    return render_template(
+        "dashboard/simulator_create.html",
         sample_params_by_type=sample_params_by_type,
     )
 
