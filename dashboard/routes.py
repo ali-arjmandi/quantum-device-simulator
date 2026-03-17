@@ -69,7 +69,9 @@ def add_device():
     )
     store_add_device(device)
     if powered_on:
-        manager_start_device(device)
+        if not manager_start_device(device):
+            update_device(device.id, powered_on=False)
+            flash("Could not start device (e.g. port in use).", "error")
     return redirect(url_for("dashboard.simulator"))
 
 
@@ -83,8 +85,9 @@ def toggle_device(device_id: str):
     update_device(device_id, powered_on=new_powered_on)
     if new_powered_on:
         updated = get_device(device_id)
-        if updated:
-            manager_start_device(updated)
+        if updated and not manager_start_device(updated):
+            update_device(device_id, powered_on=False)
+            flash("Could not start device (e.g. port in use).", "error")
     else:
         manager_stop_device(device_id)
     return redirect(url_for("dashboard.simulator"))
@@ -121,8 +124,9 @@ def edit_device(device_id: str):
         )
         if powered_on:
             updated = get_device(device_id)
-            if updated:
-                manager_start_device(updated)
+            if updated and not manager_start_device(updated):
+                update_device(device_id, powered_on=False)
+                flash("Could not start device (e.g. port in use).", "error")
         else:
             manager_stop_device(device_id)
         return redirect(url_for("dashboard.simulator"))

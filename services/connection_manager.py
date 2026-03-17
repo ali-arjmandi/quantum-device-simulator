@@ -1,10 +1,12 @@
 """Connection manager: starts/stops virtual Serial and TCP device simulators.
 
 When a device is turned on, opens a virtual connection and runs a simulator thread.
-When turned off, closes the connection and stops the thread.
+TCP devices run in a separate process so killing the process on the port does not stop the Flask app.
 """
 import logging
+import multiprocessing
 import socket
+import subprocess
 import threading
 import time
 from typing import Any
@@ -13,8 +15,41 @@ from models.device import Device
 
 logger = logging.getLogger(__name__)
 
+
+def _on_device_thread_exited(device_id: str) -> None:
+    """Called when a simulator thread exits (error or normal). Remove from _active and sync store."""
+    with _lock:
+        conn = _active.pop(device_id, None)
+    if conn is not None:
+        from services.store import update_device
+        update_device(device_id, powered_on=False)
+        logger.info("Device %s connection exited; set powered_on=False", device_id)
+
 _active: dict[str, "_ActiveConnection"] = {}
 _lock = threading.Lock()
+
+
+def _kill_processes_on_port(port: int) -> None:
+    """Kill processes using the given port (Unix: lsof + kill -9). No-op if none or on error."""
+    try:
+        out = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if out.returncode != 0 or not out.stdout or not out.stdout.strip():
+            return
+        pids = out.stdout.strip().split()
+        for pid in pids:
+            try:
+                subprocess.run(["kill", "-9", pid], capture_output=True, timeout=2)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        if pids:
+            logger.info("Killed process(es) on port %s: %s", port, pids)
+    except (subprocess.TimeoutExpired, OSError, ValueError) as e:
+        logger.debug("Could not kill processes on port %s: %s", port, e)
 
 
 class _ActiveConnection:
@@ -23,16 +58,18 @@ class _ActiveConnection:
     def __init__(
         self,
         device_id: str,
-        stop_event: threading.Event,
+        stop_event: threading.Event | None,
         thread: threading.Thread,
         close_handles: list[Any],
         connection_type: str = "",
+        tcp_port: int | None = None,
     ):
         self.device_id = device_id
         self.stop_event = stop_event
         self.thread = thread
-        self.close_handles = close_handles  # sockets etc. to close on stop
+        self.close_handles = close_handles  # sockets, or [Process] for TCP
         self.connection_type = connection_type
+        self.tcp_port = tcp_port  # for TCP health message
 
 
 def _serial_simulator_loop(device_end: socket.socket, stop_event: threading.Event, device_id: str) -> None:
@@ -54,56 +91,63 @@ def _serial_simulator_loop(device_end: socket.socket, stop_event: threading.Even
             device_end.close()
         except OSError:
             pass
+        _on_device_thread_exited(device_id)
 
 
-def _tcp_server_loop(
-    bind_host: str,
-    port: int,
-    device_id: str,
-    stop_event: threading.Event,
-    holder: dict,
-) -> None:
-    """Run a server at bind_host:port; when a client connects, stream device data to it."""
+def _tcp_server_subprocess_target(port: int, device_id: str) -> None:
+    """Run in a subprocess: bind to 127.0.0.1:port and serve clients until process is killed.
+    If the process is killed (e.g. kill -9 on the port), only this process dies; Flask stays up.
+    """
+    bind_host = "127.0.0.1"
     listener = None
-    client = None
     try:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.settimeout(0.5)
         listener.bind((bind_host, port))
         listener.listen(1)
-        holder["listener"] = listener
+    except OSError:
+        if listener:
+            try:
+                listener.close()
+            except OSError:
+                pass
+        raise SystemExit(1)
 
-        while not stop_event.is_set():
+    try:
+        while True:
+            client = None
             try:
                 client, _ = listener.accept()
-                break
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-
-        if client is None:
-            return
-        holder["client"] = client
-        client.settimeout(0.5)
-
-        while not stop_event.is_set():
-            try:
-                line = f'{{"device_id":"{device_id}","temperature":25.3}}\n'
-                client.sendall(line.encode("utf-8"))
+                client.settimeout(0.5)
+                while True:
+                    line = f'{{"device_id":"{device_id}","temperature":25.3}}\n'
+                    client.sendall(line.encode("utf-8"))
+                    time.sleep(1.0)
             except (BrokenPipeError, OSError):
-                break
-            stop_event.wait(1.0)
-    except OSError as e:
-        logger.warning("TCP server for device %s (%s:%s): %s", device_id, bind_host, port, e)
+                pass
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except OSError:
+                        pass
     finally:
-        for s in (client, listener):
-            if s is not None:
-                try:
-                    s.close()
-                except OSError:
-                    pass
+        try:
+            listener.close()
+        except OSError:
+            pass
+
+
+def _tcp_watcher_thread(process: multiprocessing.Process, device_id: str) -> None:
+    """When the TCP subprocess dies (killed or we terminated it), clean up and sync store."""
+    process.join()
+    with _lock:
+        conn = _active.pop(device_id, None)
+    if conn is not None:
+        from services.store import update_device
+        update_device(device_id, powered_on=False)
+        logger.info("TCP device %s process ended; set powered_on=False", device_id)
 
 
 def start_device(device: Device) -> bool:
@@ -150,8 +194,7 @@ def start_device(device: Device) -> bool:
         return True
 
     if connection_type == "TCP/IP":
-        # Simulation only: server binds to 127.0.0.1 (localhost only)
-        bind_host = "127.0.0.1"
+        # Run TCP server in a subprocess so killing the process on the port does not stop the Flask app
         port = params.get("port")
         if port is None:
             logger.warning("TCP device %s missing port in connection_params", device.id)
@@ -165,39 +208,45 @@ def start_device(device: Device) -> bool:
             logger.warning("TCP device %s port out of range: %s", device.id, port)
             return False
 
-        holder: dict = {}
-
-        stop_event = threading.Event()
-        thread = threading.Thread(
-            target=_tcp_server_loop,
-            args=(bind_host, port, device.id, stop_event, holder),
-            daemon=True,
-        )
-        thread.start()
-
-        # Wait briefly for server to start listening
-        for _ in range(20):
-            if stop_event.is_set():
+        process: multiprocessing.Process | None = None
+        for attempt in range(2):
+            process = multiprocessing.Process(
+                target=_tcp_server_subprocess_target,
+                args=(port, device.id),
+                daemon=True,
+            )
+            process.start()
+            time.sleep(1.2)
+            if process.exitcode is None:
                 break
-            time.sleep(0.05)
-            if "listener" in holder:
-                break
-        else:
-            stop_event.set()
-            thread.join(timeout=2.0)
+            if process.exitcode == 1:
+                logger.warning("TCP device %s could not bind to port %s, trying to free port", device.id, port)
+                _kill_processes_on_port(port)
+                time.sleep(1.0)
+            process = None
+
+        if process is None or process.exitcode is not None:
             logger.warning("TCP device %s could not bind to port %s (in use?)", device.id, port)
             return False
+
+        watcher = threading.Thread(
+            target=_tcp_watcher_thread,
+            args=(process, device.id),
+            daemon=True,
+        )
+        watcher.start()
 
         with _lock:
             _active[device.id] = _ActiveConnection(
                 device_id=device.id,
-                stop_event=stop_event,
-                thread=thread,
-                close_handles=[holder.get("listener")],
+                stop_event=None,
+                thread=watcher,
+                close_handles=[process],
                 connection_type="TCP/IP",
+                tcp_port=port,
             )
         logger.info(
-            "TCP device %s: server running on 127.0.0.1:%s — connect your client to receive data",
+            "TCP device %s: server running on 127.0.0.1:%s (in subprocess) — connect your client to receive data",
             device.id, port,
         )
         return True
@@ -212,15 +261,29 @@ def stop_device(device_id: str) -> None:
         conn = _active.pop(device_id, None)
     if conn is None:
         return
-    conn.stop_event.set()
+    if conn.stop_event is not None:
+        conn.stop_event.set()
     for h in conn.close_handles:
         if h is not None:
             try:
-                h.close()
+                if hasattr(h, "terminate"):
+                    h.terminate()
+                    h.join(timeout=2.0)
+                else:
+                    h.close()
             except OSError:
                 pass
     conn.thread.join(timeout=2.0)
     logger.info("Stopped device %s", device_id)
+
+
+def stop_all_devices() -> None:
+    """Stop all active device connections (e.g. on app shutdown). Releases ports and joins threads."""
+    with _lock:
+        ids = list(_active.keys())
+    for device_id in ids:
+        stop_device(device_id)
+    logger.info("Stopped all devices (%s)", len(ids))
 
 
 def check_device_health(device_id: str, powered_on: bool) -> dict[str, str]:
@@ -243,17 +306,12 @@ def check_device_health(device_id: str, powered_on: bool) -> dict[str, str]:
         return {"status": "unhealthy", "message": "Serial simulator thread stopped"}
 
     if conn.connection_type == "TCP/IP":
-        listener = conn.close_handles[0] if conn.close_handles else None
-        if listener is None:
-            return {"status": "unhealthy", "message": "No listener socket"}
-        if not conn.thread.is_alive():
-            return {"status": "unhealthy", "message": "TCP server thread stopped"}
-        try:
-            port = listener.getsockname()[1]
-        except OSError:
-            return {"status": "unhealthy", "message": "Listener socket closed"}
-        # Do not connect() here: the server accepts only one client; connecting would
-        # become that client, and closing would break the server. Just verify listener is bound.
+        process = conn.close_handles[0] if conn.close_handles else None
+        if process is None:
+            return {"status": "unhealthy", "message": "No TCP process"}
+        if not process.is_alive():
+            return {"status": "unhealthy", "message": "TCP server process stopped"}
+        port = getattr(conn, "tcp_port", None) or "?"
         return {"status": "healthy", "message": f"TCP server listening on port {port}"}
 
     return {"status": "unhealthy", "message": "Unknown connection type"}
