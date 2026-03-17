@@ -16,8 +16,29 @@ from typing import Any
 from models.device import Device
 
 from services import device_logs as device_logs_module
+from services import device_data as device_data_module
 
 logger = logging.getLogger(__name__)
+
+# Shared config for TCP subprocesses (real-time simulator options). Lazy-init.
+_simulator_config_manager: Any = None
+_simulator_config_shared: dict | None = None
+
+
+def _get_simulator_config_shared() -> dict:
+    """Return the shared dict for TCP simulator config; create Manager lazily."""
+    global _simulator_config_manager, _simulator_config_shared
+    if _simulator_config_shared is None:
+        _simulator_config_manager = multiprocessing.Manager()
+        _simulator_config_shared = _simulator_config_manager.dict()
+    return _simulator_config_shared
+
+
+def update_simulator_config_shared(device_id: str, device_type: str, simulator_config: dict) -> None:
+    """Update shared config for a TCP device so the subprocess sees changes in real time."""
+    shared = _simulator_config_shared
+    if shared is not None and device_id in shared:
+        shared[device_id] = {"device_type": device_type, "simulator_config": simulator_config}
 
 
 def _on_device_thread_exited(device_id: str, reason: str | None = None) -> None:
@@ -90,27 +111,36 @@ class _ActiveConnection:
 
 
 def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_id: str) -> None:
-    """Device side of virtual serial over PTY: send periodic fake data until stop.
-    PTY stays open even when no client is connected; write errors (e.g. EIO) are ignored
-    so the device remains "ready to connect". Thread only exits on stop_event or fatal error.
+    """Device side of virtual serial over PTY: send type-based data until stop.
+    Reads device from store each tick so simulator options (noise, drift) apply in real time.
     """
+    from services.store import get_device
     exit_reason: str | None = None
     last_write_ok = True
     try:
+        interval_sec = 1.0
         while not stop_event.is_set():
             try:
-                line = f"SENSOR,TEMP,{25.0 + (hash(device_id) % 10) / 10:.1f}\n"
+                device = get_device(device_id)
+                if device is None:
+                    stop_event.wait(interval_sec)
+                    continue
+                device_type = getattr(device, "device_type", "") or "sensor"
+                metadata = getattr(device, "metadata", None) or {}
+                payload, interval_sec = device_data_module.get_payload(
+                    device_id, device_type, metadata, time.time()
+                )
+                line = device_data_module.format_serial(payload)
                 os.write(master_fd, line.encode("utf-8"))
                 last_write_ok = True
             except (BrokenPipeError, OSError):
-                # No client connected or client disconnected; PTY stays open for new connections
                 if last_write_ok:
                     logger.debug(
                         "Serial device %s: no client or client disconnected; PTY remains open.",
                         device_id,
                     )
                 last_write_ok = False
-            stop_event.wait(1.0)
+            stop_event.wait(interval_sec)
     except Exception as e:
         exit_reason = f"{type(e).__name__}: {e}"
         logger.warning("Serial simulator thread for %s: %s", device_id, exit_reason)
@@ -122,10 +152,11 @@ def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_i
         _on_device_thread_exited(device_id, reason=exit_reason)
 
 
-def _tcp_server_subprocess_target(port: int, device_id: str) -> None:
+def _tcp_server_subprocess_target(port: int, device_id: str, shared_config: dict) -> None:
     """Run in a subprocess: bind to 127.0.0.1:port and serve clients until process is killed.
-    If the process is killed (e.g. kill -9 on the port), only this process dies; Flask stays up.
+    Reads shared_config each tick so simulator options (noise, drift) apply in real time.
     """
+    from services import device_data as device_data_module
     bind_host = "127.0.0.1"
     listener = None
     try:
@@ -149,9 +180,16 @@ def _tcp_server_subprocess_target(port: int, device_id: str) -> None:
                 client, _ = listener.accept()
                 client.settimeout(0.5)
                 while True:
-                    line = f'{{"device_id":"{device_id}","temperature":25.3}}\n'
+                    cfg = shared_config.get(device_id, {})
+                    device_type = cfg.get("device_type", "sensor")
+                    simulator_config = cfg.get("simulator_config", {})
+                    metadata = {"simulator_config": simulator_config}
+                    payload, interval_sec = device_data_module.get_payload(
+                        device_id, device_type, metadata, time.time()
+                    )
+                    line = device_data_module.format_tcp(payload)
                     client.sendall(line.encode("utf-8"))
-                    time.sleep(1.0)
+                    time.sleep(interval_sec)
             except (BrokenPipeError, OSError):
                 pass
             finally:
@@ -264,11 +302,16 @@ def start_device(device: Device) -> bool:
             logger.warning("TCP device %s port out of range: %s", device.id, port)
             return False
 
+        shared_config = _get_simulator_config_shared()
+        shared_config[device.id] = {
+            "device_type": getattr(device, "device_type", "") or "sensor",
+            "simulator_config": (getattr(device, "metadata", None) or {}).get("simulator_config", {}),
+        }
         process: multiprocessing.Process | None = None
         for attempt in range(2):
             process = multiprocessing.Process(
                 target=_tcp_server_subprocess_target,
-                args=(port, device.id),
+                args=(port, device.id, shared_config),
                 daemon=True,
             )
             process.start()
@@ -329,6 +372,8 @@ def stop_device(device_id: str) -> None:
         conn = _active.pop(device_id, None)
     if conn is None:
         return
+    if conn.connection_type == "TCP/IP" and _simulator_config_shared is not None:
+        _simulator_config_shared.pop(device_id, None)
     device_logs_module.append_log(
         device_id, "connection_stopped", "Connection stopped.", level="info"
     )

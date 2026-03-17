@@ -25,12 +25,14 @@
                     <th>Connection</th>
                     <th>State</th>
                     <th>Health</th>
+                    <th>Simulator</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for device in devices %}
-                  <tr data-device-id="{{ device.id }}">
+                  {% set sim_config = (device.metadata or {}).get('simulator_config', {}) %}
+                  <tr data-device-id="{{ device.id }}" data-simulator-config="{{ (sim_config | tojson) | e }}" data-simulator-config-url="{{ url_for('dashboard.patch_simulator_config', device_id=device.id) }}">
                     <td>{{ device.name }}</td>
                     <td>{{ device.device_type }}</td>
                     <td class="connection-cell">
@@ -46,6 +48,18 @@
                     </td>
                     <td class="health-cell">
                       <span class="health-indicator d-inline-block rounded-circle" style="width:12px;height:12px;background:#ccc;" title="Checking…"></span>
+                    </td>
+                    <td class="simulator-cell">
+                      <div class="simulator-toggles d-flex flex-wrap gap-2 align-items-center" role="group" aria-label="Simulator options for {{ device.name }}">
+                        <label class="mb-0 small d-flex align-items-center">
+                          <input type="checkbox" class="simulator-option" data-option="noise" {{ 'checked' if sim_config.get('noise') else '' }} {{ 'disabled' if not device.powered_on else '' }} title="{{ 'Noise' if device.powered_on else 'Power on to change' }}">
+                          <span class="ms-1">Noise</span>
+                        </label>
+                        <label class="mb-0 small d-flex align-items-center">
+                          <input type="checkbox" class="simulator-option" data-option="drift" {{ 'checked' if sim_config.get('drift') else '' }} {{ 'disabled' if not device.powered_on else '' }} title="{{ 'Drift' if device.powered_on else 'Power on to change' }}">
+                          <span class="ms-1">Drift</span>
+                        </label>
+                      </div>
                     </td>
                     <td>
                       <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
@@ -142,6 +156,11 @@
                   btn.classList.add('btn-success');
                 }
               }
+              var simOpts = row.querySelectorAll('.simulator-option');
+              simOpts.forEach(function (cb) {
+                cb.disabled = !isOn;
+                cb.title = isOn ? (cb.getAttribute('data-option') === 'noise' ? 'Noise' : 'Drift') : 'Power on to change';
+              });
             });
           })
           .catch(function () {
@@ -153,6 +172,36 @@
       }
       updateHealthIndicators();
       setInterval(updateHealthIndicators, 2000);
+
+      // Simulator options: Noise / Drift — PATCH on toggle
+      var table = document.querySelector('.table');
+      if (table) {
+        table.addEventListener('change', function (e) {
+          var option = e.target;
+          if (!option.classList.contains('simulator-option')) return;
+          var row = option.closest('tr[data-device-id]');
+          if (!row) return;
+          var noiseEl = row.querySelector('.simulator-option[data-option="noise"]');
+          var driftEl = row.querySelector('.simulator-option[data-option="drift"]');
+          var noise = noiseEl ? noiseEl.checked : false;
+          var drift = driftEl ? driftEl.checked : false;
+          var url = row.getAttribute('data-simulator-config-url');
+          if (!url) return;
+          fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ noise: noise, drift: drift })
+          })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (d) { throw new Error(d.message || 'Failed'); });
+              row.setAttribute('data-simulator-config', JSON.stringify({ noise: noise, drift: drift }));
+            })
+            .catch(function (err) {
+              option.checked = !option.checked;
+              alert('Could not save simulator options: ' + (err.message || 'Unknown error'));
+            });
+        });
+      }
     })();
   </script>
 {% endblock %}

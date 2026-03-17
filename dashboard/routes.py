@@ -16,6 +16,7 @@ from services.connection_manager import (
     check_device_health,
     start_device as manager_start_device,
     stop_device as manager_stop_device,
+    update_simulator_config_shared,
 )
 from services.device_logs import append_log as device_logs_append, get_logs as get_device_logs
 from services.store import (
@@ -162,6 +163,42 @@ def device_health(device_id: str):
         return jsonify({"status": "unknown", "message": "Device not found"}), 404
     result = check_device_health(device_id, device.powered_on)
     return jsonify(result)
+
+
+@bp.route("/simulator/device/<device_id>/simulator-config", methods=["GET"])
+def get_simulator_config(device_id: str):
+    """Return current simulator_config for the device (for UI sync)."""
+    device = get_device(device_id)
+    if device is None:
+        return jsonify({"message": "Device not found"}), 404
+    config = (device.metadata or {}).get("simulator_config", {})
+    return jsonify(config)
+
+
+@bp.route("/simulator/device/<device_id>/simulator-config", methods=["PATCH"])
+def patch_simulator_config(device_id: str):
+    """Update simulator options (noise, drift); apply in real time for running devices."""
+    device = get_device(device_id)
+    if device is None:
+        return jsonify({"ok": False, "message": "Device not found"}), 404
+    data = request.get_json(silent=True) or {}
+    noise = data.get("noise")
+    drift = data.get("drift")
+    metadata = dict(device.metadata) if device.metadata else {}
+    sim_config = dict(metadata.get("simulator_config", {}))
+    if noise is not None:
+        sim_config["noise"] = bool(noise)
+    if drift is not None:
+        sim_config["drift"] = bool(drift)
+    metadata["simulator_config"] = sim_config
+    update_device(device_id, metadata=metadata)
+    if getattr(device, "connection_type", "") == "TCP/IP" and device.powered_on:
+        update_simulator_config_shared(
+            device_id,
+            getattr(device, "device_type", "") or "sensor",
+            sim_config,
+        )
+    return jsonify({"ok": True})
 
 
 @bp.route("/simulator/health", methods=["GET"])
