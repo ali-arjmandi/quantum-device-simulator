@@ -1,7 +1,7 @@
 .PHONY: run install test docker-run gunicorn
 
 run:
-	FLASK_APP=app flask run
+	FLASK_APP=app FLASK_RUN_PORT=5555 flask run
 
 docker-run:
 	docker compose up --build
