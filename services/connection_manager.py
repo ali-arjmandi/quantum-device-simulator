@@ -75,12 +75,12 @@ def _monitor_dispatcher_loop() -> None:
 
 
 def get_or_create_monitor_queue(device_id: str) -> queue.Queue:
-    """Create a queue for this device, register it, and return it. For TCP, set monitor_active True if first subscriber."""
+    """Create a queue for this device, register it, and return it. For TCP, set monitor_active True when any subscriber exists."""
     with _monitor_lock:
         qu = queue.Queue()
         _monitor_subscribers.setdefault(device_id, []).append(qu)
-        is_first = len(_monitor_subscribers[device_id]) == 1
-    if is_first and _simulator_config_shared is not None and device_id in _simulator_config_shared:
+        has_subscribers = len(_monitor_subscribers[device_id]) >= 1
+    if has_subscribers and _simulator_config_shared is not None and device_id in _simulator_config_shared:
         cfg = dict(_simulator_config_shared.get(device_id, {}))
         cfg["monitor_active"] = True
         _simulator_config_shared[device_id] = cfg
@@ -93,10 +93,11 @@ def unregister_monitor_queue(device_id: str, q: queue.Queue) -> None:
         subs = _monitor_subscribers.get(device_id, [])
         if q in subs:
             subs.remove(q)
-        if not subs:
+        no_subscribers_left = not subs
+        if no_subscribers_left:
             _monitor_subscribers.pop(device_id, None)
             _last_payload.pop(device_id, None)
-    if _simulator_config_shared is not None and device_id in _simulator_config_shared:
+    if no_subscribers_left and _simulator_config_shared is not None and device_id in _simulator_config_shared:
         cfg = dict(_simulator_config_shared.get(device_id, {}))
         cfg["monitor_active"] = False
         _simulator_config_shared[device_id] = cfg
@@ -479,14 +480,21 @@ def start_device(device: Device) -> bool:
 
 
 def stop_device(device_id: str) -> None:
-    """Stop simulator and close connection for the device."""
+    """Stop simulator and close connection for the device.
+    Notify monitor subscribers with device_off so the UI can show it; keep subscribers
+    registered so when the device is turned on again the same stream receives data.
+    """
     with _lock:
         conn = _active.pop(device_id, None)
     if conn is None:
         return
     with _monitor_lock:
         _last_payload.pop(device_id, None)
-        _monitor_subscribers.pop(device_id, None)
+        for q in _monitor_subscribers.get(device_id, []):
+            try:
+                q.put_nowait({"status": "device_off"})
+            except Exception:
+                pass
     if conn.connection_type == "TCP/IP" and _simulator_config_shared is not None:
         _simulator_config_shared.pop(device_id, None)
     device_logs_module.append_log(

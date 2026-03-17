@@ -83,46 +83,79 @@
       }
 
       var streamUrl = '{{ url_for("dashboard.device_monitor_stream", device_id=device.id) }}';
+      var healthUrl = '{{ url_for("dashboard.device_health", device_id=device.id) }}';
       var reconnectScheduled = false;
+      var deviceOffFlag = false;
+      var currentES = null;
+
+      function setBadge(text, title, isLive) {
+        liveBadge.textContent = text;
+        liveBadge.title = title || text;
+        liveBadge.classList.remove('badge-success', 'badge-secondary', 'badge-warning');
+        liveBadge.classList.add(isLive ? 'badge-success' : 'badge-secondary');
+      }
 
       function connect() {
         reconnectScheduled = false;
-        var es = new EventSource(streamUrl);
-        es.onmessage = function (e) {
+        if (currentES) {
+          currentES.close();
+          currentES = null;
+        }
+        currentES = new EventSource(streamUrl);
+        currentES.onmessage = function (e) {
           try {
             var data = JSON.parse(e.data);
             if (data && data.status === 'connected') {
               noDataMsg.textContent = 'Connected. Waiting for data…';
               noDataMsg.style.display = 'block';
+              deviceOffFlag = false;
+              return;
+            }
+            if (data && data.status === 'device_off') {
+              setBadge('Device is off', 'Device was powered off', false);
+              deviceOffFlag = true;
               return;
             }
             if (data && data.heartbeat) {
               return;
             }
             if (data && data.payload != null) {
+              deviceOffFlag = false;
+              setBadge('Live', 'Receiving live updates', true);
               updateUI(data);
             }
           } catch (err) {}
         };
-        es.onerror = function () {
-          es.close();
-          liveBadge.classList.remove('badge-success');
-          liveBadge.classList.add('badge-secondary');
-          liveBadge.textContent = 'Reconnecting…';
-          liveBadge.title = 'Connection lost, reconnecting…';
+        currentES.onerror = function () {
+          currentES.close();
+          currentES = null;
+          setBadge('Reconnecting…', 'Connection lost, reconnecting…', false);
           if (!reconnectScheduled) {
             reconnectScheduled = true;
             setTimeout(connect, 2000);
           }
         };
-        es.onopen = function () {
-          liveBadge.classList.remove('badge-secondary');
-          liveBadge.classList.add('badge-success');
-          liveBadge.textContent = 'Live';
-          liveBadge.title = 'Receiving live updates';
+        currentES.onopen = function () {
+          if (!deviceOffFlag) {
+            setBadge('Live', 'Receiving live updates', true);
+          }
         };
       }
       connect();
+
+      setInterval(function () {
+        fetch(healthUrl).then(function (r) { return r.json(); }).then(function (health) {
+          var status = health && health.status;
+          if (status === 'off') {
+            setBadge('Device is off', 'Device is powered off', false);
+            deviceOffFlag = true;
+          } else if (status === 'healthy' && deviceOffFlag) {
+            deviceOffFlag = false;
+            setBadge('Reconnecting…', 'Device is on again, reconnecting stream…', false);
+            connect();
+          }
+        }).catch(function () {});
+      }, 4000);
 
       var simulatorConfigUrl = '{{ url_for("dashboard.patch_simulator_config", device_id=device.id) }}';
       var noiseEl = document.getElementById('monitor-option-noise');
