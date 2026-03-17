@@ -12,7 +12,15 @@ from config.connection_specs import (
     parse_connection_params,
     validate_connection_params,
 )
+from models.connection import Connection
 from models.device import Device
+from services.client_connector import (
+    get_or_create_stream_queue,
+    is_connected,
+    start_connection as client_start_connection,
+    stop_connection as client_stop_connection,
+    unregister_stream_queue,
+)
 from services.connection_manager import (
     check_device_health,
     get_last_payload,
@@ -23,6 +31,13 @@ from services.connection_manager import (
     update_simulator_config_shared,
 )
 from services.device_logs import append_log as device_logs_append, get_logs as get_device_logs
+from services.connection_store import (
+    add_connection as store_add_connection,
+    delete_connection as store_delete_connection,
+    get_all_connections,
+    get_connection,
+    update_connection as store_update_connection,
+)
 from services.store import (
     add_device as store_add_device,
     delete_device as store_delete_device,
@@ -354,3 +369,231 @@ def delete_device(device_id: str):
     if not store_delete_device(device_id):
         abort(404)
     return redirect(url_for("dashboard.simulator"))
+
+
+@bp.route("/simulator/device/<device_id>/add-to-connections", methods=["POST"])
+def device_add_to_connections(device_id: str):
+    """Quick-add: create a connection from this device (Serial path or TCP host:port) and redirect to connections."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    params = (device.metadata or {}).get("connection_params") or {}
+    if device.connection_type == "TCP/IP":
+        host = params.get("host") or "127.0.0.1"
+        port = params.get("port")
+        if port is None:
+            flash("Device has no TCP port configured.", "error")
+            return redirect(url_for("dashboard.simulator"))
+        address = f"{host}:{port}"
+        metadata = {"host": str(host), "port": int(port)}
+    else:
+        health = check_device_health(device_id, device.powered_on)
+        serial_path = health.get("serial_path") if isinstance(health, dict) else None
+        if not serial_path and device.powered_on:
+            flash("Serial path not available yet.", "error")
+            return redirect(url_for("dashboard.simulator"))
+        if not serial_path:
+            flash("Power on the device first to get its Serial path, then add to connections.", "error")
+            return redirect(url_for("dashboard.simulator"))
+        address = serial_path
+        metadata = {"path": serial_path}
+    name = f"{device.name} (from simulator)"
+    conn = Connection(
+        id=uuid.uuid4().hex,
+        name=name,
+        connection_type=device.connection_type,
+        address=address,
+        device_id=device_id,
+        metadata=metadata,
+    )
+    store_add_connection(conn)
+    flash(f"Connection “{name}” added.", "success")
+    return redirect(url_for("dashboard.connections_list"))
+
+
+# --- Connections (client connections to any device: Serial or TCP) ---
+
+
+@bp.route("/connections")
+def connections_list():
+    """List all saved connections."""
+    conns = get_all_connections()
+    return render_template("dashboard/connections.html", connections=conns)
+
+
+@bp.route("/connections/new", methods=["GET"])
+def connection_new():
+    """Show form to add a new connection."""
+    return render_template("dashboard/connection_new.html")
+
+
+@bp.route("/connections/add", methods=["POST"])
+def connection_add():
+    """Create a new connection and redirect to list."""
+    name = request.form.get("name", "").strip() or "Unnamed"
+    connection_type = request.form.get("connection_type", "").strip() or "Serial"
+    if connection_type == "Serial":
+        address = request.form.get("conn_path", "").strip() or request.form.get("address", "").strip()
+        if not address:
+            flash("Serial path is required.", "error")
+            return redirect(url_for("dashboard.connection_new"))
+        metadata = {"path": address}
+    else:
+        host = request.form.get("conn_host", "").strip() or "127.0.0.1"
+        port_s = request.form.get("conn_tcp_port", "").strip()
+        if not port_s:
+            flash("TCP port is required.", "error")
+            return redirect(url_for("dashboard.connection_new"))
+        try:
+            port = int(port_s)
+        except ValueError:
+            flash("Port must be a number.", "error")
+            return redirect(url_for("dashboard.connection_new"))
+        address = f"{host}:{port}"
+        metadata = {"host": host, "port": port}
+    conn = Connection(
+        id=uuid.uuid4().hex,
+        name=name,
+        connection_type=connection_type,
+        address=address,
+        device_id=None,
+        metadata=metadata,
+    )
+    store_add_connection(conn)
+    return redirect(url_for("dashboard.connections_list"))
+
+
+@bp.route("/connections/<connection_id>/edit", methods=["GET", "POST"])
+def connection_edit(connection_id: str):
+    """Show edit form (GET) or update connection (POST)."""
+    conn = get_connection(connection_id)
+    if conn is None:
+        abort(404)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip() or "Unnamed"
+        connection_type = request.form.get("connection_type", "").strip() or conn.connection_type
+        if connection_type == "Serial":
+            address = request.form.get("conn_path", "").strip() or request.form.get("address", "").strip()
+            if not address:
+                flash("Serial path is required.", "error")
+                return redirect(url_for("dashboard.connection_edit", connection_id=connection_id))
+            metadata = {"path": address}
+        else:
+            host = request.form.get("conn_host", "").strip() or "127.0.0.1"
+            port_s = request.form.get("conn_tcp_port", "").strip()
+            if not port_s:
+                flash("TCP port is required.", "error")
+                return redirect(url_for("dashboard.connection_edit", connection_id=connection_id))
+            try:
+                port = int(port_s)
+            except ValueError:
+                flash("Port must be a number.", "error")
+                return redirect(url_for("dashboard.connection_edit", connection_id=connection_id))
+            address = f"{host}:{port}"
+            metadata = {"host": host, "port": port}
+        store_update_connection(
+            connection_id,
+            name=name,
+            connection_type=connection_type,
+            address=address,
+            metadata=metadata,
+        )
+        return redirect(url_for("dashboard.connections_list"))
+    return render_template("dashboard/connection_edit.html", connection=conn)
+
+
+@bp.route("/connections/<connection_id>/delete", methods=["POST"])
+def connection_delete(connection_id: str):
+    """Delete a connection; stop client if active."""
+    client_stop_connection(connection_id)
+    if not store_delete_connection(connection_id):
+        abort(404)
+    return redirect(url_for("dashboard.connections_list"))
+
+
+@bp.route("/connections/<connection_id>/monitor")
+def connection_monitor_page(connection_id: str):
+    """Monitor page: live stream, charts, stats for this connection."""
+    conn = get_connection(connection_id)
+    if conn is None:
+        abort(404)
+    return render_template("dashboard/connection_monitor.html", connection=conn)
+
+
+def _connection_stream_generator(connection_id: str):
+    """Yield SSE events: each received line with timestamp; heartbeat when idle."""
+    stream_queue = get_or_create_stream_queue(connection_id)
+    if stream_queue is None:
+        yield f"data: {json.dumps({'status': 'error', 'message': 'Connection not found or failed to start'})}\n\n"
+        return
+    try:
+        yield f"data: {json.dumps({'status': 'connected'})}\n\n"
+        heartbeat_interval = 15
+        while True:
+            try:
+                data = stream_queue.get(timeout=heartbeat_interval)
+                if data.get("status") == "disconnected":
+                    yield f"data: {json.dumps(data)}\n\n"
+                    return
+                yield f"data: {json.dumps(data, default=str)}\n\n"
+            except queue.Empty:
+                yield f"data: {json.dumps({'heartbeat': True})}\n\n"
+            except GeneratorExit:
+                raise
+            except Exception:
+                yield f"data: {json.dumps({'heartbeat': True})}\n\n"
+    finally:
+        unregister_stream_queue(connection_id, stream_queue)
+
+
+@bp.route("/connections/<connection_id>/stream")
+def connection_stream(connection_id: str):
+    """SSE stream of received lines for this connection."""
+    if get_connection(connection_id) is None:
+        abort(404)
+    return Response(
+        stream_with_context(_connection_stream_generator(connection_id)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@bp.route("/connections/<connection_id>/status")
+def connection_status(connection_id: str):
+    """JSON status (connected/disconnected) for the connection."""
+    if get_connection(connection_id) is None:
+        return jsonify({"status": "unknown", "message": "Connection not found"}), 404
+    return jsonify({"status": "connected" if is_connected(connection_id) else "disconnected"})
+
+
+@bp.route("/connections/<connection_id>/connect", methods=["POST"])
+def connection_connect(connection_id: str):
+    """Start the client connection (idempotent). Redirect to monitor or return JSON."""
+    conn = get_connection(connection_id)
+    if conn is None:
+        abort(404)
+    ok, err = client_start_connection(connection_id)
+    if request.accept_mimetypes.best_match(["application/json", "text/html"]) == "application/json":
+        return jsonify({"ok": ok, "error": err or None})
+    if not ok:
+        flash(err or "Failed to connect", "error")
+        return redirect(url_for("dashboard.connections_list"))
+    redirect_to = request.args.get("redirect")
+    if redirect_to == "monitor":
+        return redirect(url_for("dashboard.connection_monitor_page", connection_id=connection_id))
+    return redirect(url_for("dashboard.connections_list"))
+
+
+@bp.route("/connections/<connection_id>/disconnect", methods=["POST"])
+def connection_disconnect(connection_id: str):
+    """Stop the client connection."""
+    if get_connection(connection_id) is None:
+        abort(404)
+    client_stop_connection(connection_id)
+    if request.accept_mimetypes.best_match(["application/json", "text/html"]) == "application/json":
+        return jsonify({"ok": True})
+    return redirect(url_for("dashboard.connections_list"))

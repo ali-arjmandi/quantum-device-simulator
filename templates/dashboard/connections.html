@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Connections | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Connections</h1>
+
+  <div class="row">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">
+          <div class="d-flex align-items-center justify-content-between">
+            <h4 class="card-title mb-0">Saved connections</h4>
+            <a href="{{ url_for('dashboard.connection_new') }}" class="btn btn-sm btn-primary">Add connection</a>
+          </div>
+        </div>
+        <div class="card-body">
+          {% if connections is defined and connections %}
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Address</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for conn in connections %}
+                  <tr data-connection-id="{{ conn.id }}" data-status-url="{{ url_for('dashboard.connection_status', connection_id=conn.id) }}">
+                    <td>{{ conn.name }}</td>
+                    <td>{{ conn.connection_type }}</td>
+                    <td>{{ conn.address }}</td>
+                    <td class="status-cell">
+                      <span class="connection-status-badge badge badge-secondary" title="Checking…">—</span>
+                    </td>
+                    <td>
+                      <form action="{{ url_for('dashboard.connection_connect', connection_id=conn.id) }}" method="post" class="d-inline" id="connect-form-{{ conn.id }}">
+                        <input type="hidden" name="redirect" value="monitor">
+                        <button type="submit" class="btn btn-sm btn-success connect-btn">Connect</button>
+                      </form>
+                      <a href="{{ url_for('dashboard.connection_monitor_page', connection_id=conn.id) }}" class="btn btn-sm btn-outline-info">Monitor</a>
+                      <a href="{{ url_for('dashboard.connection_edit', connection_id=conn.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                      <form action="{{ url_for('dashboard.connection_disconnect', connection_id=conn.id) }}" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-outline-warning disconnect-btn">Disconnect</button>
+                      </form>
+                      <form action="{{ url_for('dashboard.connection_delete', connection_id=conn.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this connection?');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">No connections yet. Add a connection to connect to a device via Serial or TCP.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      function updateStatusIndicators() {
+        var rows = document.querySelectorAll('tr[data-connection-id]');
+        rows.forEach(function (row) {
+          var id = row.getAttribute('data-connection-id');
+          var url = row.getAttribute('data-status-url');
+          var badge = row.querySelector('.connection-status-badge');
+          if (!url || !badge) return;
+          fetch(url)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              var status = data.status || 'unknown';
+              if (status === 'connected') {
+                badge.textContent = 'Connected';
+                badge.classList.remove('badge-secondary');
+                badge.classList.add('badge-success');
+                badge.title = 'Connected';
+              } else {
+                badge.textContent = 'Disconnected';
+                badge.classList.remove('badge-success');
+                badge.classList.add('badge-secondary');
+                badge.title = 'Disconnected';
+              }
+            })
+            .catch(function () {
+              badge.textContent = '—';
+              badge.title = 'Check failed';
+            });
+        });
+      }
+      updateStatusIndicators();
+      setInterval(updateStatusIndicators, 3000);
+    })();
+  </script>
+{% endblock %}

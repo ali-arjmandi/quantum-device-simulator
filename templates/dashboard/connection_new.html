@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Add connection | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Add connection</h1>
+
+  <div class="row">
+    <div class="col-md-6 col-lg-5">
+      <div class="card">
+        <div class="card-body">
+          <form action="{{ url_for('dashboard.connection_add') }}" method="post">
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" class="form-control" id="name" name="name" placeholder="e.g. Lab sensor" required>
+            </div>
+            <div class="form-group">
+              <label for="connection_type">Connection type</label>
+              <select class="form-control" id="connection_type" name="connection_type">
+                <option value="Serial">Serial</option>
+                <option value="TCP/IP">TCP/IP</option>
+              </select>
+            </div>
+            <div class="form-group connection-details-serial">
+              <label for="conn_path">Serial path</label>
+              <input type="text" class="form-control" id="conn_path" name="conn_path" placeholder="e.g. /dev/ttys002 or COM3">
+              <small class="form-text text-muted">Device path (e.g. PTY from a simulated device or real serial port).</small>
+            </div>
+            <div class="form-group connection-details-tcp d-none">
+              <label for="conn_host">Host</label>
+              <input type="text" class="form-control" id="conn_host" name="conn_host" placeholder="127.0.0.1" value="127.0.0.1">
+              <div class="form-group mt-2">
+                <label for="conn_tcp_port">Port</label>
+                <input type="number" class="form-control" id="conn_tcp_port" name="conn_tcp_port" placeholder="e.g. 5020" min="1" max="65535">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Add connection</button>
+            <a href="{{ url_for('dashboard.connections_list') }}" class="btn btn-secondary">Cancel</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var typeSelect = document.getElementById('connection_type');
+      var serialBlock = document.querySelector('.connection-details-serial');
+      var tcpBlock = document.querySelector('.connection-details-tcp');
+      function toggle() {
+        var isSerial = typeSelect.value === 'Serial';
+        serialBlock.classList.toggle('d-none', !isSerial);
+        tcpBlock.classList.toggle('d-none', isSerial);
+      }
+      typeSelect.addEventListener('change', toggle);
+      toggle();
+    })();
+  </script>
+{% endblock %}

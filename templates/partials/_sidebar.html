@@ -24,5 +24,14 @@
         <i class="menu-arrow"></i>
       </a>
     </li>
+    <li class="nav-item menu-items {{ 'active' if request.endpoint in ('dashboard.connections_list', 'dashboard.connection_new', 'dashboard.connection_edit', 'dashboard.connection_monitor_page') else '' }}">
+      <a class="nav-link" href="{{ url_for('dashboard.connections_list') }}">
+        <span class="menu-icon">
+          <i class="mdi mdi-connection"></i>
+        </span>
+        <span class="menu-title">Connections</span>
+        <i class="menu-arrow"></i>
+      </a>
+    </li>
   </ul>
 </nav>

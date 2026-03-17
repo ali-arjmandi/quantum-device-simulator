@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}Monitor: {{ connection.name }} | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="d-flex align-items-center">
+      <h1 class="mb-0">Monitor: {{ connection.name }}</h1>
+      <span class="badge badge-secondary ml-2 align-middle" id="stream-badge" title="Connecting…">Connecting…</span>
+    </div>
+    <div>
+      <form action="{{ url_for('dashboard.connection_disconnect', connection_id=connection.id) }}" method="post" class="d-inline">
+        <button type="submit" class="btn btn-outline-warning btn-sm">Disconnect</button>
+      </form>
+      <a href="{{ url_for('dashboard.connections_list') }}" class="btn btn-outline-secondary btn-sm">Back to connections</a>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-12 col-lg-7 col-xl-8">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Real-time chart</h4>
+        </div>
+        <div class="card-body">
+          <canvas id="dataChart" height="80"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5 col-xl-4">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Statistics</h4>
+        </div>
+        <div class="card-body" id="stats-panel">
+          <p class="text-muted small mb-0" id="stats-placeholder">Waiting for numeric data…</p>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0" id="stats-table" style="display: none; min-width: 320px;">
+              <thead><tr><th>Series</th><th>Current</th><th>Min</th><th>Max</th><th>Avg</th><th>Count</th></tr></thead>
+              <tbody id="stats-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h4 class="card-title mb-0">Export</h4>
+        </div>
+        <div class="card-body">
+          <button type="button" class="btn btn-outline-primary btn-sm" id="export-csv-btn">Export CSV</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h4 class="card-title mb-0">Raw log (last 100 lines)</h4>
+    </div>
+    <div class="card-body">
+      <div id="raw-log" class="bg-dark text-light p-3 rounded small font-monospace" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
+      <p class="text-muted small mb-0 mt-2" id="no-log-msg">No data yet. Connect to see the stream.</p>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='vendors/chart.js/chart.umd.js') }}"></script>
+  <script>
+    (function () {
+      var connectionId = '{{ connection.id }}';
+      var streamUrl = '{{ url_for("dashboard.connection_stream", connection_id=connection.id) }}';
+      var connectUrl = '{{ url_for("dashboard.connection_connect", connection_id=connection.id) }}';
+
+      var MAX_LOG_LINES = 100;
+      var MAX_CHART_POINTS = 80;
+      var logLines = [];
+      var rawLogEl = document.getElementById('raw-log');
+      var noLogMsg = document.getElementById('no-log-msg');
+      var streamBadge = document.getElementById('stream-badge');
+      var statsPlaceholder = document.getElementById('stats-placeholder');
+      var statsTable = document.getElementById('stats-table');
+      var statsTbody = document.getElementById('stats-tbody');
+      var exportCsvBtn = document.getElementById('export-csv-btn');
+
+      // Rolling buffers: { seriesKey: [{ t, value }, ...] }
+      var chartData = {};
+      var chart = null;
+
+      function formatTs(ts) {
+        if (ts == null) return '';
+        var d = new Date(ts * 1000);
+        var ms = ((ts % 1) * 1000).toFixed(0);
+        return d.toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + ms;
+      }
+
+      function parseLine(raw) {
+        var trimmed = (raw || '').trim();
+        if (!trimmed) return null;
+        if (trimmed.charAt(0) === '{') {
+          try {
+            var obj = JSON.parse(trimmed);
+            var out = {};
+            for (var k in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                var v = obj[k];
+                if (typeof v === 'number' && !isNaN(v)) out[k] = v;
+              }
+            }
+            return Object.keys(out).length ? out : null;
+          } catch (e) {
+            return null;
+          }
+        }
+        var parts = trimmed.split(/[\t,;]/);
+        var nums = [];
+        for (var i = 0; i < parts.length; i++) {
+          var n = parseFloat(parts[i]);
+          if (!isNaN(n)) nums.push(n);
+        }
+        if (nums.length === 0) return null;
+        var o = {};
+        nums.forEach(function (n, i) { o['col' + i] = n; });
+        return o;
+      }
+
+      function pushToChart(ts, parsed) {
+        if (!parsed || typeof ts !== 'number') return;
+        for (var key in parsed) {
+          if (!chartData[key]) chartData[key] = [];
+          chartData[key].push({ t: ts, value: parsed[key] });
+          if (chartData[key].length > MAX_CHART_POINTS) chartData[key].shift();
+        }
+      }
+
+      function updateChart() {
+        var labels = [];
+        var firstSeries = null;
+        for (var k in chartData) {
+          if (chartData[k].length) {
+            firstSeries = firstSeries || chartData[k];
+            break;
+          }
+        }
+        if (!firstSeries || firstSeries.length === 0) return;
+        labels = firstSeries.map(function (p) { return formatTs(p.t); });
+        var datasets = [];
+        var colors = ['rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(75, 192, 192)', 'rgb(255, 206, 86)', 'rgb(153, 102, 255)'];
+        var idx = 0;
+        for (var key in chartData) {
+          var arr = chartData[key];
+          if (arr.length === 0) continue;
+          var data = arr.map(function (p) { return p.value; });
+          while (data.length < labels.length) data.unshift(null);
+          datasets.push({
+            label: key,
+            data: data,
+            borderColor: colors[idx % colors.length],
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0
+          });
+          idx++;
+        }
+        if (!chart) {
+          var ctx = document.getElementById('dataChart').getContext('2d');
+          chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: labels, datasets: datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: true,
+              scales: {
+                x: { display: true, ticks: { maxTicksLimit: 12 } },
+                y: { display: true }
+              },
+              plugins: { legend: { display: true } }
+            }
+          });
+        } else {
+          chart.data.labels = labels;
+          chart.data.datasets = datasets;
+          chart.update('none');
+        }
+      }
+
+      function updateStats() {
+        var rows = [];
+        for (var key in chartData) {
+          var arr = chartData[key];
+          if (arr.length === 0) continue;
+          var values = arr.map(function (p) { return p.value; });
+          var cur = values[values.length - 1];
+          var min = Math.min.apply(null, values);
+          var max = Math.max.apply(null, values);
+          var sum = values.reduce(function (a, b) { return a + b; }, 0);
+          var avg = sum / values.length;
+          rows.push({ key: key, current: cur, min: min, max: max, avg: avg, count: values.length });
+        }
+        if (rows.length === 0) {
+          statsTable.style.display = 'none';
+          statsPlaceholder.style.display = 'block';
+          return;
+        }
+        statsPlaceholder.style.display = 'none';
+        statsTable.style.display = 'table';
+        statsTbody.innerHTML = rows.map(function (r) {
+          return '<tr><td>' + r.key + '</td><td>' + r.current.toFixed(2) + '</td><td>' + r.min.toFixed(2) + '</td><td>' + r.max.toFixed(2) + '</td><td>' + (r.avg.toFixed(2)) + '</td><td>' + r.count + '</td></tr>';
+        }).join('');
+      }
+
+      function appendLog(ts, raw) {
+        noLogMsg.style.display = 'none';
+        logLines.push(formatTs(ts) + '  ' + raw);
+        if (logLines.length > MAX_LOG_LINES) logLines.shift();
+        rawLogEl.textContent = logLines.join('\n');
+        rawLogEl.scrollTop = rawLogEl.scrollHeight;
+      }
+
+      function onStreamData(data) {
+        if (!data || data.heartbeat) return;
+        if (data.status === 'disconnected' || data.status === 'error') {
+          streamBadge.textContent = data.status === 'disconnected' ? 'Disconnected' : 'Error';
+          streamBadge.classList.remove('badge-success');
+          streamBadge.classList.add('badge-secondary');
+          return;
+        }
+        var ts = data.ts;
+        var raw = data.raw;
+        if (raw != null) {
+          appendLog(ts, raw);
+          var parsed = parseLine(raw);
+          if (parsed) {
+            pushToChart(ts, parsed);
+            updateChart();
+            updateStats();
+          }
+        }
+        streamBadge.textContent = 'Live';
+        streamBadge.classList.remove('badge-secondary');
+        streamBadge.classList.add('badge-success');
+        streamBadge.title = 'Receiving data';
+      }
+
+      function connect() {
+        fetch(connectUrl, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+          .then(function () {
+            var es = new EventSource(streamUrl);
+            es.onopen = function () {
+              streamBadge.textContent = 'Connecting…';
+              streamBadge.title = 'Stream open';
+            };
+            es.onmessage = function (e) {
+              try {
+                var data = JSON.parse(e.data);
+                onStreamData(data);
+              } catch (err) {}
+            };
+            es.onerror = function () {
+              es.close();
+              streamBadge.textContent = 'Reconnecting…';
+              streamBadge.classList.remove('badge-success');
+              streamBadge.classList.add('badge-secondary');
+              setTimeout(connect, 2000);
+            };
+            window._connectionMonitorES = es;
+          })
+          .catch(function () {
+            streamBadge.textContent = 'Connect failed';
+            streamBadge.classList.add('badge-secondary');
+          });
+      }
+
+      exportCsvBtn.addEventListener('click', function () {
+        if (logLines.length === 0) {
+          alert('No data to export.');
+          return;
+        }
+        var header = 'timestamp,raw';
+        var csv = [header].concat(logLines.map(function (line) {
+          var i = line.indexOf('  ');
+          var ts = i >= 0 ? line.substring(0, i).replace(/"/g, '""') : '';
+          var raw = i >= 0 ? line.substring(i + 2).replace(/"/g, '""') : line.replace(/"/g, '""');
+          return '"' + ts + '","' + raw + '"';
+        })).join('\r\n');
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'connection_' + connectionId + '_export.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      connect();
+    })();
+  </script>
+{% endblock %}

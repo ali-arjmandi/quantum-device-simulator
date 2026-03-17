@@ -60,6 +60,7 @@ instance/
 
 # Local persisted data
 data/devices.json
+data/connections.json
 
 # Optional: local config (uncomment if you add one)
 # config/local.py
