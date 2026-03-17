@@ -6,7 +6,68 @@
   <h1 class="mb-4">Device management</h1>
 
   <div class="row">
-    <div class="col-md-6 col-lg-5">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Devices</h4>
+        </div>
+        <div class="card-body">
+          {% if devices is defined and devices %}
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Device type</th>
+                    <th>Connection</th>
+                    <th>State</th>
+                    <th>Health</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for device in devices %}
+                  <tr data-device-id="{{ device.id }}">
+                    <td>{{ device.name }}</td>
+                    <td>{{ device.device_type }}</td>
+                    <td>{{ device | connection_summary }}</td>
+                    <td>
+                      {% if device.powered_on %}
+                        <span class="badge badge-success state-badge">On</span>
+                      {% else %}
+                        <span class="badge badge-secondary text-black state-badge">Off</span>
+                      {% endif %}
+                    </td>
+                    <td class="health-cell">
+                      <span class="health-indicator d-inline-block rounded-circle" style="width:12px;height:12px;background:#ccc;" title="Checking…"></span>
+                    </td>
+                    <td>
+                      <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-sm toggle-btn {{ 'btn-warning' if device.powered_on else 'btn-success' }}">
+                          {{ 'Power off' if device.powered_on else 'Power on' }}
+                        </button>
+                      </form>
+                      <a href="{{ url_for('dashboard.device_logs', device_id=device.id) }}" class="btn btn-sm btn-outline-secondary">Logs</a>
+                      <a href="{{ url_for('dashboard.edit_device', device_id=device.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                      <form action="{{ url_for('dashboard.delete_device', device_id=device.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this device?');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">No devices yet. Create one using the form.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row mt-4">
+    <div class="col-12 col-lg-5 col-xl-4">
       <div class="card">
         <div class="card-header">
           <h4 class="card-title mb-0">Create device</h4>
@@ -93,66 +154,8 @@
         </div>
       </div>
     </div>
-
-    <div class="col-md-6 col-lg-7">
-      <div class="card">
-        <div class="card-header">
-          <h4 class="card-title mb-0">Devices</h4>
-        </div>
-        <div class="card-body">
-          {% if devices is defined and devices %}
-            <div class="table-responsive">
-              <table class="table table-bordered table-hover">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Device type</th>
-                    <th>Connection</th>
-                    <th>State</th>
-                    <th>Health</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for device in devices %}
-                  <tr data-device-id="{{ device.id }}">
-                    <td>{{ device.name }}</td>
-                    <td>{{ device.device_type }}</td>
-                    <td>{{ device | connection_summary }}</td>
-                    <td>
-                      {% if device.powered_on %}
-                        <span class="badge badge-success state-badge">On</span>
-                      {% else %}
-                        <span class="badge badge-secondary text-black state-badge">Off</span>
-                      {% endif %}
-                    </td>
-                    <td class="health-cell">
-                      <span class="health-indicator d-inline-block rounded-circle" style="width:12px;height:12px;background:#ccc;" title="Checking…"></span>
-                    </td>
-                    <td>
-                      <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
-                        <button type="submit" class="btn btn-sm toggle-btn {{ 'btn-warning' if device.powered_on else 'btn-success' }}">
-                          {{ 'Power off' if device.powered_on else 'Power on' }}
-                        </button>
-                      </form>
-                      <a href="{{ url_for('dashboard.device_logs', device_id=device.id) }}" class="btn btn-sm btn-outline-secondary">Logs</a>
-                      <a href="{{ url_for('dashboard.edit_device', device_id=device.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
-                      <form action="{{ url_for('dashboard.delete_device', device_id=device.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this device?');">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                      </form>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <p class="text-muted mb-0">No devices yet. Create one using the form.</p>
-          {% endif %}
-        </div>
-      </div>
-    </div>
   </div>
+
   <script>
     (function () {
       var connectionType = document.getElementById('connection_type');
