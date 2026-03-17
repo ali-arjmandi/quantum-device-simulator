@@ -149,7 +149,9 @@ def all_devices_health():
     devices = get_all_devices()
     result = {}
     for device in devices:
-        result[device.id] = check_device_health(device.id, device.powered_on)
+        health = check_device_health(device.id, device.powered_on)
+        health["powered_on"] = device.powered_on
+        result[device.id] = health
     return jsonify(result)
 
 

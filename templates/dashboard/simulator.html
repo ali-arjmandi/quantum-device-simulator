@@ -121,9 +121,9 @@
                     <td>{{ device | connection_summary }}</td>
                     <td>
                       {% if device.powered_on %}
-                        <span class="badge badge-success">On</span>
+                        <span class="badge badge-success state-badge">On</span>
                       {% else %}
-                        <span class="badge badge-secondary text-black">Off</span>
+                        <span class="badge badge-secondary text-black state-badge">Off</span>
                       {% endif %}
                     </td>
                     <td class="health-cell">
@@ -131,7 +131,7 @@
                     </td>
                     <td>
                       <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
-                        <button type="submit" class="btn btn-sm {{ 'btn-warning' if device.powered_on else 'btn-success' }}">
+                        <button type="submit" class="btn btn-sm toggle-btn {{ 'btn-warning' if device.powered_on else 'btn-success' }}">
                           {{ 'Power off' if device.powered_on else 'Power on' }}
                         </button>
                       </form>
@@ -187,6 +187,8 @@
               }
               var status = health.status || 'unknown';
               var msg = health.message || '';
+              var isOn = !!health.powered_on;
+
               if (status === 'healthy') {
                 el.style.background = '#28a745';
                 el.title = msg;
@@ -196,6 +198,32 @@
               } else {
                 el.style.background = '#6c757d';
                 el.title = msg;
+              }
+
+              // Also keep the state badge and action button in sync with backend powered_on
+              var badge = row.querySelector('.state-badge');
+              var btn = row.querySelector('.toggle-btn');
+              if (badge) {
+                if (isOn) {
+                  badge.textContent = 'On';
+                  badge.classList.remove('badge-secondary', 'text-black');
+                  badge.classList.add('badge-success');
+                } else {
+                  badge.textContent = 'Off';
+                  badge.classList.remove('badge-success');
+                  badge.classList.add('badge-secondary', 'text-black');
+                }
+              }
+              if (btn) {
+                if (isOn) {
+                  btn.textContent = 'Power off';
+                  btn.classList.remove('btn-success');
+                  btn.classList.add('btn-warning');
+                } else {
+                  btn.textContent = 'Power on';
+                  btn.classList.remove('btn-warning');
+                  btn.classList.add('btn-success');
+                }
               }
             });
           })
