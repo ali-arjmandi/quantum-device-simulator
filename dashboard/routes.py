@@ -1,8 +1,9 @@
 """Dashboard blueprint and routes."""
 import uuid
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
+from config.connection_specs import parse_connection_params, validate_connection_params
 from models.device import Device
 from services.store import (
     add_device as store_add_device,
@@ -33,14 +34,22 @@ def add_device():
     """Create a new device and redirect back to simulator."""
     name = request.form.get("name", "").strip()
     device_type = request.form.get("device_type", "").strip()
-    connection_type = request.form.get("connection_type", "").strip()
+    connection_type = request.form.get("connection_type", "").strip() or "Serial"
     powered_on = request.form.get("powered_on") == "on"
+    connection_params = parse_connection_params(connection_type, request.form)
+    errors = validate_connection_params(connection_type, connection_params)
+    if errors:
+        for msg in errors:
+            flash(msg, "error")
+        return redirect(url_for("dashboard.simulator"))
+    metadata = {"connection_params": connection_params}
     device = Device(
         id=uuid.uuid4().hex,
         name=name or "Unnamed",
         device_type=device_type or "sensor",
-        connection_type=connection_type or "Serial",
+        connection_type=connection_type,
         powered_on=powered_on,
+        metadata=metadata,
     )
     store_add_device(device)
     return redirect(url_for("dashboard.simulator"))
@@ -65,14 +74,23 @@ def edit_device(device_id: str):
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         device_type = request.form.get("device_type", "").strip()
-        connection_type = request.form.get("connection_type", "").strip()
+        connection_type = request.form.get("connection_type", "").strip() or "Serial"
         powered_on = request.form.get("powered_on") == "on"
+        connection_params = parse_connection_params(connection_type, request.form)
+        errors = validate_connection_params(connection_type, connection_params)
+        if errors:
+            for msg in errors:
+                flash(msg, "error")
+            return redirect(url_for("dashboard.edit_device", device_id=device_id))
+        existing_metadata = device.metadata if device.metadata else {}
+        metadata = {**existing_metadata, "connection_params": connection_params}
         update_device(
             device_id,
             name=name or "Unnamed",
             device_type=device_type or "sensor",
-            connection_type=connection_type or "Serial",
+            connection_type=connection_type,
             powered_on=powered_on,
+            metadata=metadata,
         )
         return redirect(url_for("dashboard.simulator"))
     return render_template("dashboard/simulator_edit.html", device=device)
