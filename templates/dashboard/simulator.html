@@ -3,6 +3,98 @@
 {% block title %}Device Simulator | Quantum Device Simulator{% endblock %}
 
 {% block content %}
-  <h1>Simulator</h1>
-  <p>Simulate quantum devices and connections here.</p>
+  <h1 class="mb-4">Device management</h1>
+
+  <div class="row">
+    <div class="col-md-6 col-lg-5">
+      <div class="card">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Create device</h4>
+        </div>
+        <div class="card-body">
+          <form action="{{ url_for('dashboard.add_device') }}" method="post">
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" class="form-control" id="name" name="name" placeholder="Device name" required>
+            </div>
+            <div class="form-group">
+              <label for="device_type">Device type</label>
+              <select class="form-control" id="device_type" name="device_type">
+                <option value="sensor">Sensor</option>
+                <option value="actuator">Actuator</option>
+                <option value="satellite payload">Satellite payload</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="connection_type">Connection type</label>
+              <select class="form-control" id="connection_type" name="connection_type">
+                <option value="Serial">Serial</option>
+                <option value="TCP/IP">TCP/IP</option>
+                <option value="USB">USB</option>
+                <option value="I2C">I2C</option>
+                <option value="SPI">SPI</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="powered_on" name="powered_on" value="on">
+                <label class="form-check-label" for="powered_on">Start powered on</label>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Add device</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6 col-lg-7">
+      <div class="card">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Devices</h4>
+        </div>
+        <div class="card-body">
+          {% if devices is defined and devices %}
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Device type</th>
+                    <th>Connection</th>
+                    <th>State</th>
+                    <th>Power</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for device in devices %}
+                  <tr>
+                    <td>{{ device.name }}</td>
+                    <td>{{ device.device_type }}</td>
+                    <td>{{ device.connection_type }}</td>
+                    <td>
+                      {% if device.powered_on %}
+                        <span class="badge badge-success">On</span>
+                      {% else %}
+                        <span class="badge badge-secondary text-black">Off</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-sm {{ 'btn-warning' if device.powered_on else 'btn-success' }} ">
+                          {{ 'Power off' if device.powered_on else 'Power on' }}
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">No devices yet. Create one using the form.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}

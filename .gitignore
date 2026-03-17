@@ -58,5 +58,8 @@ logs/
 instance/
 .webassets-cache
 
+# Local persisted data
+data/devices.json
+
 # Optional: local config (uncomment if you add one)
 # config/local.py
