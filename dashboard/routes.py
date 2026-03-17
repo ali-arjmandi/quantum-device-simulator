@@ -1,10 +1,12 @@
 """Dashboard blueprint and routes."""
 import json
+import os
 import queue
 import time
 import uuid
 from dataclasses import asdict
 
+import markdown
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, Response, stream_with_context, url_for
 
 from config.connection_specs import (
@@ -53,6 +55,28 @@ bp = Blueprint("dashboard", __name__, url_prefix="/dashboard")
 def index():
     """Dashboard index."""
     return render_template("dashboard/index.html")
+
+
+_DOCS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "documentation"))
+
+
+@bp.route("/documentation")
+@bp.route("/documentation/<path:filename>")
+def documentation(filename="README.md"):
+    """Render a markdown file from the documentation folder as HTML."""
+    path = os.path.normpath(os.path.join(_DOCS_DIR, filename))
+    docs_real = os.path.realpath(_DOCS_DIR)
+    real_path = os.path.realpath(path)
+    if not (real_path == docs_real or real_path.startswith(docs_real + os.sep)) or not os.path.isfile(real_path):
+        abort(404)
+    path = real_path
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = f.read()
+    except OSError:
+        abort(404)
+    html = markdown.markdown(raw, extensions=["extra", "codehilite"])
+    return render_template("dashboard/documentation.html", content=html, filename=filename)
 
 
 @bp.route("/simulator", methods=["GET"])

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Documentation | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Documentation</h1>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="documentation-content">
+        {{ content | safe }}
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block head_css %}
+  <style>
+    .documentation-content h1 { font-size: 1.5rem; margin-top: 1rem; margin-bottom: 0.5rem; }
+    .documentation-content h2 { font-size: 1.25rem; margin-top: 1rem; margin-bottom: 0.5rem; }
+    .documentation-content h3 { font-size: 1.1rem; margin-top: 0.75rem; margin-bottom: 0.5rem; }
+    .documentation-content ul, .documentation-content ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
+    .documentation-content p { margin-bottom: 0.75rem; }
+    .documentation-content code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.9em; }
+    .documentation-content pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; margin-bottom: 0.75rem; }
+    .documentation-content pre code { background: none; padding: 0; }
+  </style>
+{% endblock %}
