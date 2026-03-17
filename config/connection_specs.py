@@ -27,9 +27,9 @@ def _str(s: Any) -> str:
     return str(s).strip()
 
 
+# Serial: PTY path is chosen at runtime; port/address input removed. Baud/data/stop/parity are metadata only.
 SERIAL_SPEC = [
-    ("conn_port", "port", _str, True),
-    ("conn_baud_rate", "baud_rate", lambda s: _int(s) if s else None, True),
+    ("conn_baud_rate", "baud_rate", lambda s: _int(s) if s else None, False),
     ("conn_data_bits", "data_bits", lambda s: _int(s) if s else None, False),
     ("conn_stop_bits", "stop_bits", lambda s: _int(s) if s else None, False),
     ("conn_parity", "parity", _str, False),
@@ -104,7 +104,6 @@ def generate_sample_connection_params(connection_type: str) -> dict[str, Any]:
     """
     if connection_type == "Serial":
         return {
-            "port": random.choice(["COM3", "COM4", "/dev/ttyUSB0", "/dev/ttyS0"]),
             "baud_rate": random.choice([9600, 19200, 38400, 57600, 115200]),
             "data_bits": random.choice([7, 8]),
             "stop_bits": random.choice([1, 2]),
@@ -140,11 +139,11 @@ def format_connection_summary(connection_type: str, connection_params: dict[str,
     if not connection_params:
         return "—"
     if connection_type == "Serial":
-        port = connection_params.get("port") or ""
+        # PTY path is shown at runtime in Connection column when device is on
         baud = connection_params.get("baud_rate")
-        if port and baud is not None:
-            return f"{port} @ {baud}"
-        return port or "—"
+        if baud is not None:
+            return f"Serial @ {baud}"
+        return "Serial"
     if connection_type == "TCP/IP":
         port = connection_params.get("port")
         if port is not None:

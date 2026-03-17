@@ -33,7 +33,10 @@
                   <tr data-device-id="{{ device.id }}">
                     <td>{{ device.name }}</td>
                     <td>{{ device.device_type }}</td>
-                    <td>{{ device | connection_summary }}</td>
+                    <td class="connection-cell">
+                      <span class="connection-summary">{{ device | connection_summary }}</span>
+                      <span class="connection-runtime text-muted small d-block" style="display:none;"></span>
+                    </td>
                     <td>
                       {% if device.powered_on %}
                         <span class="badge badge-success state-badge">On</span>
@@ -91,6 +94,18 @@
               var msg = health.message || '';
               var isOn = !!health.powered_on;
 
+              var runtimeEl = row.querySelector('.connection-runtime');
+              if (runtimeEl) {
+                if (status === 'healthy' && health.serial_path) {
+                  runtimeEl.textContent = 'Connect: ' + health.serial_path;
+                  runtimeEl.style.display = 'block';
+                  runtimeEl.title = 'Connect with: screen ' + health.serial_path;
+                } else {
+                  runtimeEl.textContent = '';
+                  runtimeEl.style.display = 'none';
+                  runtimeEl.removeAttribute('title');
+                }
+              }
               if (status === 'healthy') {
                 el.style.background = '#28a745';
                 el.title = msg;

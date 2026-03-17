@@ -5,6 +5,8 @@ TCP devices run in a separate process so killing the process on the port does no
 """
 import logging
 import multiprocessing
+import os
+import pty
 import socket
 import subprocess
 import threading
@@ -18,20 +20,25 @@ from services import device_logs as device_logs_module
 logger = logging.getLogger(__name__)
 
 
-def _on_device_thread_exited(device_id: str) -> None:
+def _on_device_thread_exited(device_id: str, reason: str | None = None) -> None:
     """Called when a simulator thread exits (error or normal). Remove from _active and sync store."""
     with _lock:
         conn = _active.pop(device_id, None)
     if conn is not None:
+        msg = "Connection exited (process killed or error)."
+        if reason:
+            msg = f"Connection exited: {reason}"
+            logger.warning("Device %s connection exited: %s", device_id, reason)
+        else:
+            logger.info("Device %s connection exited; set powered_on=False", device_id)
         device_logs_module.append_log(
             device_id,
             "disconnected",
-            "Connection exited (process killed or error).",
+            msg,
             level="warning",
         )
         from services.store import update_device
         update_device(device_id, powered_on=False)
-        logger.info("Device %s connection exited; set powered_on=False", device_id)
 
 _active: dict[str, "_ActiveConnection"] = {}
 _lock = threading.Lock()
@@ -71,35 +78,48 @@ class _ActiveConnection:
         close_handles: list[Any],
         connection_type: str = "",
         tcp_port: int | None = None,
+        serial_path: str | None = None,
     ):
         self.device_id = device_id
         self.stop_event = stop_event
         self.thread = thread
-        self.close_handles = close_handles  # sockets, or [Process] for TCP
+        self.close_handles = close_handles  # sockets, [Process] for TCP, or PTY fds
         self.connection_type = connection_type
         self.tcp_port = tcp_port  # for TCP health message
+        self.serial_path = serial_path  # for Serial PTY health/log messages
 
 
-def _serial_simulator_loop(device_end: socket.socket, stop_event: threading.Event, device_id: str) -> None:
-    """Device side of virtual serial: send periodic fake data until stop."""
+def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_id: str) -> None:
+    """Device side of virtual serial over PTY: send periodic fake data until stop.
+    PTY stays open even when no client is connected; write errors (e.g. EIO) are ignored
+    so the device remains "ready to connect". Thread only exits on stop_event or fatal error.
+    """
+    exit_reason: str | None = None
+    last_write_ok = True
     try:
-        device_end.settimeout(0.5)
         while not stop_event.is_set():
             try:
-                # Send a line of fake sensor data every second
                 line = f"SENSOR,TEMP,{25.0 + (hash(device_id) % 10) / 10:.1f}\n"
-                device_end.sendall(line.encode("utf-8"))
+                os.write(master_fd, line.encode("utf-8"))
+                last_write_ok = True
             except (BrokenPipeError, OSError):
-                break
+                # No client connected or client disconnected; PTY stays open for new connections
+                if last_write_ok:
+                    logger.debug(
+                        "Serial device %s: no client or client disconnected; PTY remains open.",
+                        device_id,
+                    )
+                last_write_ok = False
             stop_event.wait(1.0)
     except Exception as e:
-        logger.warning("Serial simulator thread for %s: %s", device_id, e)
+        exit_reason = f"{type(e).__name__}: {e}"
+        logger.warning("Serial simulator thread for %s: %s", device_id, exit_reason)
     finally:
         try:
-            device_end.close()
+            os.close(master_fd)
         except OSError:
             pass
-        _on_device_thread_exited(device_id)
+        _on_device_thread_exited(device_id, reason=exit_reason)
 
 
 def _tcp_server_subprocess_target(port: int, device_id: str) -> None:
@@ -153,15 +173,21 @@ def _tcp_watcher_thread(process: multiprocessing.Process, device_id: str) -> Non
     with _lock:
         conn = _active.pop(device_id, None)
     if conn is not None:
+        code = process.exitcode
+        msg = "Connection exited (process killed or error)."
+        if code is not None and code != 0:
+            msg = f"Connection exited: process ended with code {code} (e.g. killed or crash)."
+            logger.warning("TCP device %s process ended with exit code %s", device_id, code)
+        else:
+            logger.info("TCP device %s process ended; set powered_on=False", device_id)
         device_logs_module.append_log(
             device_id,
             "disconnected",
-            "Connection exited (process killed or error).",
+            msg,
             level="warning",
         )
         from services.store import update_device
         update_device(device_id, powered_on=False)
-        logger.info("TCP device %s process ended; set powered_on=False", device_id)
 
 
 def start_device(device: Device) -> bool:
@@ -180,34 +206,47 @@ def start_device(device: Device) -> bool:
             return True
 
     if connection_type == "Serial":
-        # Virtual serial: socket pair; device thread on one end
         try:
-            host_end, device_end = socket.socketpair()
+            master_fd, slave_fd = pty.openpty()
+            serial_path = os.ttyname(slave_fd)
         except OSError as e:
-            logger.warning("Socket pair for device %s: %s", device.id, e)
+            device_logs_module.append_log(
+                device.id,
+                "error",
+                f"Serial PTY open failed: {e}",
+                level="error",
+            )
+            logger.warning("PTY open for Serial device %s failed: %s", device.id, e)
             return False
 
         stop_event = threading.Event()
         thread = threading.Thread(
             target=_serial_simulator_loop,
-            args=(device_end, stop_event, device.id),
+            args=(master_fd, stop_event, device.id),
             daemon=True,
         )
         thread.start()
-        device_end.close()  # simulator holds its copy in the thread
+        try:
+            os.close(slave_fd)
+        except OSError:
+            pass
 
         with _lock:
             _active[device.id] = _ActiveConnection(
                 device_id=device.id,
                 stop_event=stop_event,
                 thread=thread,
-                close_handles=[host_end],
+                close_handles=[master_fd],
                 connection_type="Serial",
+                serial_path=serial_path,
             )
         device_logs_module.append_log(
-            device.id, "connection_started", "Serial simulator started.", level="info"
+            device.id,
+            "connection_started",
+            f"Serial simulator started on {serial_path}.",
+            level="info",
         )
-        logger.info("Virtual Serial started for device %s", device.id)
+        logger.info("Serial PTY started for device %s on %s", device.id, serial_path)
         return True
 
     if connection_type == "TCP/IP":
@@ -301,6 +340,8 @@ def stop_device(device_id: str) -> None:
                 if hasattr(h, "terminate"):
                     h.terminate()
                     h.join(timeout=2.0)
+                elif isinstance(h, int):
+                    os.close(h)
                 else:
                     h.close()
             except OSError:
@@ -318,10 +359,11 @@ def stop_all_devices() -> None:
     logger.info("Stopped all devices (%s)", len(ids))
 
 
-def check_device_health(device_id: str, powered_on: bool) -> dict[str, str]:
+def check_device_health(device_id: str, powered_on: bool) -> dict:
     """Check if the device connection is actually working.
 
-    Returns dict with keys: status ('healthy' | 'unhealthy' | 'off'), message.
+    Returns dict with keys: status ('healthy' | 'unhealthy' | 'off'), message,
+    and optionally serial_path (Serial PTY) for frontend display.
     """
     if not powered_on:
         return {"status": "off", "message": "Device is off"}
@@ -334,7 +376,14 @@ def check_device_health(device_id: str, powered_on: bool) -> dict[str, str]:
 
     if conn.connection_type == "Serial":
         if conn.thread.is_alive():
-            return {"status": "healthy", "message": "Serial simulator thread running"}
+            msg = "Serial simulator thread running"
+            serial_path = getattr(conn, "serial_path", None)
+            if serial_path:
+                msg = f"Serial PTY at {serial_path}"
+            result = {"status": "healthy", "message": msg}
+            if serial_path:
+                result["serial_path"] = serial_path
+            return result
         return {"status": "unhealthy", "message": "Serial simulator thread stopped"}
 
     if conn.connection_type == "TCP/IP":

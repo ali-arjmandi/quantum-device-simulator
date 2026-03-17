@@ -34,10 +34,7 @@
             <div class="form-group">
               <label class="d-block">Connection details</label>
               <div class="connection-details-block border rounded p-3 mb-0" data-connection-type="Serial">
-                <div class="form-group mb-2">
-                  <label for="conn_port">Port</label>
-                  <input type="text" class="form-control" id="conn_port" name="conn_port" placeholder="e.g. COM3, /dev/ttyUSB0" value="{{ _s.get('port', '') }}">
-                </div>
+                <small class="form-text text-muted mb-2">PTY path is assigned when device is powered on. Baud/data/stop/parity are metadata only.</small>
                 <div class="form-group mb-2">
                   <label for="conn_baud_rate">Baud rate</label>
                   <input type="number" class="form-control" id="conn_baud_rate" name="conn_baud_rate" placeholder="e.g. 9600, 115200" min="1" max="921600" value="{{ _s.get('baud_rate', '') }}">
