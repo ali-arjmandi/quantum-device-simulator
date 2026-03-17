@@ -1,5 +1,7 @@
 # Quantum Device Simulator
 
+**Version 1.0.0**
+
 Modern control and data-acquisition demo designed to look like the software stack around a quantum hardware experiment.
 
 The app lets you:
@@ -265,6 +267,14 @@ Alternatively: `make docker-run`. On first run this builds the image; later runs
 
 To stop the app: press **Ctrl+C** in the terminal. Optionally run `docker compose down` to remove the container. The `data/` directory on your host is mounted into the container, so any devices and connections you create are saved between runs.
 
+**Run with a pre-built image (no clone required):** If a Docker image is published (e.g. on Docker Hub or GitHub Container Registry), you can run the app without cloning the repo:
+
+```bash
+docker run -p 5555:5555 -v ./data:/app/data YOUR_IMAGE_NAME:1.0.0
+```
+
+Replace `YOUR_IMAGE_NAME` with the full image name (e.g. `ghcr.io/yourusername/quantum-device-simulator` or `yourusername/quantum-device-simulator`). Then open **http://localhost:5555**.
+
 ### 7.2 Run locally (development)
 
 If you prefer to run without Docker:
@@ -285,6 +295,26 @@ Or, without make: `FLASK_APP=app flask run`. Then open **http://127.0.0.1:5555/d
 ### 7.3 Port and environment
 
 The app listens on port **5555**. You can override the secret key with the `SECRET_KEY` environment variable if needed (e.g. in production).
+
+### 7.4 Publishing the Docker image (maintainers)
+
+To build and push a release image so others can run it with `docker pull`:
+
+1. **Build and tag** (replace `YOUR_IMAGE_NAME` with your Docker Hub or GHCR repo, e.g. `ghcr.io/username/quantum-device-simulator` or `username/quantum-device-simulator`):
+
+   ```bash
+   docker build -t YOUR_IMAGE_NAME:1.0.0 .
+   docker tag YOUR_IMAGE_NAME:1.0.0 YOUR_IMAGE_NAME:latest
+   ```
+
+2. **Push** (log in first: `docker login` for Docker Hub, or `docker login ghcr.io` for GitHub Container Registry):
+
+   ```bash
+   docker push YOUR_IMAGE_NAME:1.0.0
+   docker push YOUR_IMAGE_NAME:latest
+   ```
+
+3. Update the README or docs with the actual image name so users can copy the `docker run` one-liner.
 
 ---
 
