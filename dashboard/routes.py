@@ -57,7 +57,7 @@ def index():
     return render_template("dashboard/index.html")
 
 
-_DOCS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "documentation"))
+_DOCS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 @bp.route("/documentation")
