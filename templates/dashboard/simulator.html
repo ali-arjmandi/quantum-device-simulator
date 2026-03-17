@@ -182,7 +182,7 @@
                   <tr>
                     <td>{{ device.name }}</td>
                     <td>{{ device.device_type }}</td>
-                    <td>{{ device.connection_type }}</td>
+                    <td>{{ device | connection_summary }}</td>
                     <td>
                       {% if device.powered_on %}
                         <span class="badge badge-success">On</span>

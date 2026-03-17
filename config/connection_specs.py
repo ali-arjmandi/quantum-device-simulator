@@ -185,3 +185,59 @@ def get_all_sample_connection_params() -> dict[str, dict[str, Any]]:
         conn_type: generate_sample_connection_params(conn_type)
         for conn_type in CONNECTION_TYPES
     }
+
+
+def format_connection_summary(connection_type: str, connection_params: dict[str, Any] | None) -> str:
+    """Return a short human-readable summary for the device list.
+
+    Examples: "COM3 @ 115200", "192.168.1.10:502", "0x1234:0x5678".
+    Returns "—" when connection_params is missing or empty.
+    """
+    if not connection_params:
+        return "—"
+    if connection_type == "Serial":
+        port = connection_params.get("port") or ""
+        baud = connection_params.get("baud_rate")
+        if port and baud is not None:
+            return f"{port} @ {baud}"
+        return port or "—"
+    if connection_type == "TCP/IP":
+        host = connection_params.get("host") or ""
+        port = connection_params.get("port")
+        if host and port is not None:
+            return f"{host}:{port}"
+        return host or "—"
+    if connection_type == "USB":
+        vid = connection_params.get("vendor_id") or ""
+        pid = connection_params.get("product_id") or ""
+        if vid and pid:
+            return f"{vid}:{pid}"
+        path = connection_params.get("device_path") or ""
+        if path:
+            return path
+        return vid or pid or "—"
+    if connection_type == "I2C":
+        bus = connection_params.get("bus")
+        addr = connection_params.get("device_address")
+        parts = []
+        if bus is not None:
+            parts.append(f"I2C-{bus}")
+        if addr is not None:
+            parts.append(f"0x{addr:02X}" if isinstance(addr, int) else str(addr))
+        return " @ ".join(parts) if parts else "—"
+    if connection_type == "SPI":
+        bus = connection_params.get("bus") or ""
+        cs = connection_params.get("chip_select") or ""
+        mode = connection_params.get("mode")
+        speed = connection_params.get("max_speed")
+        parts = []
+        if bus:
+            parts.append(f"SPI-{bus}")
+        if cs:
+            parts.append(f"CS{cs}")
+        if mode is not None:
+            parts.append(f"mode {mode}")
+        if speed is not None:
+            parts.append(f"{speed} Hz")
+        return " ".join(parts) if parts else "—"
+    return "—"
