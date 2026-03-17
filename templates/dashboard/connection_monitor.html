@@ -26,8 +26,26 @@
           <canvas id="dataChart" height="80"></canvas>
         </div>
       </div>
+      <div class="card">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Raw log (last 100 lines)</h4>
+        </div>
+        <div class="card-body">
+          <div id="raw-log" class="bg-dark text-light p-3 rounded small font-monospace" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
+          <p class="text-muted small mb-0 mt-2" id="no-log-msg">No data yet. Connect to see the stream.</p>
+        </div>
+      </div>
     </div>
     <div class="col-12 col-lg-5 col-xl-4">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h4 class="card-title mb-0">Chart series</h4>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-2" id="chart-series-placeholder">Select series to plot. Properties appear as data arrives.</p>
+          <div id="chart-series-checkboxes" class="d-flex flex-column gap-1" style="max-height: 160px; overflow-y: auto;"></div>
+        </div>
+      </div>
       <div class="card mb-4">
         <div class="card-header">
           <h4 class="card-title mb-0">Statistics</h4>
@@ -53,15 +71,6 @@
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <h4 class="card-title mb-0">Raw log (last 100 lines)</h4>
-    </div>
-    <div class="card-body">
-      <div id="raw-log" class="bg-dark text-light p-3 rounded small font-monospace" style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
-      <p class="text-muted small mb-0 mt-2" id="no-log-msg">No data yet. Connect to see the stream.</p>
-    </div>
-  </div>
 
   <script src="{{ url_for('static', filename='vendors/chart.js/chart.umd.js') }}"></script>
   <script>
@@ -80,10 +89,15 @@
       var statsTable = document.getElementById('stats-table');
       var statsTbody = document.getElementById('stats-tbody');
       var exportCsvBtn = document.getElementById('export-csv-btn');
+      var chartSeriesCheckboxes = document.getElementById('chart-series-checkboxes');
+      var chartSeriesPlaceholder = document.getElementById('chart-series-placeholder');
 
       // Rolling buffers: { seriesKey: [{ t, value }, ...] }
       var chartData = {};
       var chart = null;
+      var discoveredKeys = [];
+      var selectedKeys = {};
+      var lastLineParts = null;
 
       function formatTs(ts) {
         if (ts == null) return '';
@@ -110,20 +124,65 @@
             return null;
           }
         }
-        var parts = trimmed.split(/[\t,;]/);
+        var parts = trimmed.split(/[\t,;]/).map(function (p) { return p.trim(); });
+        var out = {};
+        for (var i = 0; i + 1 < parts.length; i++) {
+          var name = parts[i];
+          var val = parseFloat(parts[i + 1]);
+          if (name && name.length <= 64 && !isNaN(val)) {
+            out[name] = val;
+            i++;
+          }
+        }
+        if (Object.keys(out).length > 0) return out;
+        var single = parseFloat(trimmed);
+        if (!isNaN(single)) return { value: single };
         var nums = [];
-        for (var i = 0; i < parts.length; i++) {
-          var n = parseFloat(parts[i]);
+        for (var j = 0; j < parts.length; j++) {
+          var n = parseFloat(parts[j]);
           if (!isNaN(n)) nums.push(n);
         }
-        if (nums.length === 0) return null;
-        var o = {};
-        nums.forEach(function (n, i) { o['col' + i] = n; });
-        return o;
+        if (nums.length === 0) {
+          if (parts.length > 0) lastLineParts = parts;
+          return null;
+        }
+        if (lastLineParts && lastLineParts.length === nums.length) {
+          for (var jj = 0; jj < nums.length; jj++) out[lastLineParts[jj]] = nums[jj];
+        } else {
+          nums.forEach(function (n, idx) { out['col' + idx] = n; });
+        }
+        return out;
+      }
+
+      function ensureDiscovered(parsed) {
+        for (var key in parsed) {
+          if (discoveredKeys.indexOf(key) === -1) {
+            discoveredKeys.push(key);
+            selectedKeys[key] = discoveredKeys.length === 1;
+            var label = document.createElement('label');
+            label.className = 'mb-0 small d-flex align-items-center';
+            label.style.cursor = 'pointer';
+            var cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'chart-series-cb mr-2';
+            cb.dataset.key = key;
+            cb.checked = selectedKeys[key];
+            cb.addEventListener('change', function () {
+              var k = this.dataset.key;
+              selectedKeys[k] = this.checked;
+              updateChart();
+            });
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(key));
+            chartSeriesCheckboxes.appendChild(label);
+            chartSeriesPlaceholder.style.display = 'none';
+          }
+        }
       }
 
       function pushToChart(ts, parsed) {
         if (!parsed || typeof ts !== 'number') return;
+        ensureDiscovered(parsed);
         for (var key in parsed) {
           if (!chartData[key]) chartData[key] = [];
           chartData[key].push({ t: ts, value: parsed[key] });
@@ -132,22 +191,31 @@
       }
 
       function updateChart() {
-        var labels = [];
         var firstSeries = null;
-        for (var k in chartData) {
-          if (chartData[k].length) {
-            firstSeries = firstSeries || chartData[k];
+        for (var i = 0; i < discoveredKeys.length; i++) {
+          var k = discoveredKeys[i];
+          if (selectedKeys[k] && chartData[k] && chartData[k].length > 0) {
+            firstSeries = chartData[k];
             break;
           }
         }
-        if (!firstSeries || firstSeries.length === 0) return;
-        labels = firstSeries.map(function (p) { return formatTs(p.t); });
+        if (!firstSeries || firstSeries.length === 0) {
+          if (chart) {
+            chart.data.labels = [];
+            chart.data.datasets = [];
+            chart.update('none');
+          }
+          return;
+        }
+        var labels = firstSeries.map(function (p) { return formatTs(p.t); });
         var datasets = [];
         var colors = ['rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(75, 192, 192)', 'rgb(255, 206, 86)', 'rgb(153, 102, 255)'];
         var idx = 0;
-        for (var key in chartData) {
+        for (var j = 0; j < discoveredKeys.length; j++) {
+          var key = discoveredKeys[j];
+          if (!selectedKeys[key]) continue;
           var arr = chartData[key];
-          if (arr.length === 0) continue;
+          if (!arr || arr.length === 0) continue;
           var data = arr.map(function (p) { return p.value; });
           while (data.length < labels.length) data.unshift(null);
           datasets.push({
