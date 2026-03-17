@@ -1,7 +1,10 @@
 """Dashboard blueprint and routes."""
+import json
+import time
 import uuid
+from dataclasses import asdict
 
-from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, Response, stream_with_context, url_for
 
 from config.connection_specs import (
     get_all_sample_connection_params,
@@ -14,6 +17,7 @@ from services.connection_manager import (
     start_device as manager_start_device,
     stop_device as manager_stop_device,
 )
+from services.device_logs import append_log as device_logs_append, get_logs as get_device_logs
 from services.store import (
     add_device as store_add_device,
     delete_device as store_delete_device,
@@ -70,6 +74,7 @@ def add_device():
     store_add_device(device)
     if powered_on:
         if not manager_start_device(device):
+            device_logs_append(device.id, "error", "Could not start device (e.g. port in use).", "error")
             update_device(device.id, powered_on=False)
             flash("Could not start device (e.g. port in use).", "error")
     return redirect(url_for("dashboard.simulator"))
@@ -86,6 +91,7 @@ def toggle_device(device_id: str):
     if new_powered_on:
         updated = get_device(device_id)
         if updated and not manager_start_device(updated):
+            device_logs_append(device_id, "error", "Could not start device (e.g. port in use).", "error")
             update_device(device_id, powered_on=False)
             flash("Could not start device (e.g. port in use).", "error")
     else:
@@ -125,6 +131,7 @@ def edit_device(device_id: str):
         if powered_on:
             updated = get_device(device_id)
             if updated and not manager_start_device(updated):
+                device_logs_append(device_id, "error", "Could not start device (e.g. port in use).", "error")
                 update_device(device_id, powered_on=False)
                 flash("Could not start device (e.g. port in use).", "error")
         else:
@@ -153,6 +160,73 @@ def all_devices_health():
         health["powered_on"] = device.powered_on
         result[device.id] = health
     return jsonify(result)
+
+
+@bp.route("/simulator/device/<device_id>/logs")
+def device_logs(device_id: str):
+    """Show monitoring logs for a device."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    logs = get_device_logs(device_id, limit=200)
+    return render_template(
+        "dashboard/simulator_logs.html",
+        device=device,
+        logs=logs,
+    )
+
+
+@bp.route("/simulator/device/<device_id>/logs/json")
+def device_logs_json(device_id: str):
+    """Return device logs as JSON (for polling or infinite scroll)."""
+    device = get_device(device_id)
+    if device is None:
+        return jsonify({"error": "Device not found"}), 404
+    logs = get_device_logs(device_id, limit=200)
+    return jsonify([asdict(log) for log in logs])
+
+
+def _logs_stream_generator(device_id: str, after: float | None):
+    """Yield SSE events: optional snapshot, then new log entries every second."""
+    if after is None:
+        logs = get_device_logs(device_id, limit=200)
+        arr = [asdict(log) for log in logs]
+        yield f"event: snapshot\ndata: {json.dumps(arr)}\n\n"
+        last_ts = max((log.timestamp or 0) for log in logs) if logs else 0.0
+    else:
+        last_ts = after
+    while True:
+        time.sleep(1)
+        try:
+            logs = get_device_logs(device_id, limit=200)
+            new_logs = [log for log in logs if (log.timestamp or 0) > last_ts]
+            for log in sorted(new_logs, key=lambda l: -(l.timestamp or 0)):
+                yield f"event: log\ndata: {json.dumps(asdict(log))}\n\n"
+                last_ts = max(last_ts, log.timestamp or 0)
+            if new_logs:
+                last_ts = max(log.timestamp or 0 for log in new_logs)
+        except GeneratorExit:
+            break
+        except Exception:
+            break
+
+
+@bp.route("/simulator/device/<device_id>/logs/stream")
+def device_logs_stream(device_id: str):
+    """Server-Sent Events stream of device logs (real-time)."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    after = request.args.get("after", type=float)
+    return Response(
+        stream_with_context(_logs_stream_generator(device_id, after)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @bp.route("/simulator/device/<device_id>/delete", methods=["POST"])

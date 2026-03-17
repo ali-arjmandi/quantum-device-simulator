@@ -135,6 +135,7 @@
                           {{ 'Power off' if device.powered_on else 'Power on' }}
                         </button>
                       </form>
+                      <a href="{{ url_for('dashboard.device_logs', device_id=device.id) }}" class="btn btn-sm btn-outline-secondary">Logs</a>
                       <a href="{{ url_for('dashboard.edit_device', device_id=device.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                       <form action="{{ url_for('dashboard.delete_device', device_id=device.id) }}" method="post" class="d-inline" onsubmit="return confirm('Delete this device?');">
                         <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>

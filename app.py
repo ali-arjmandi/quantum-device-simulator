@@ -2,6 +2,7 @@
 import os
 import signal
 import sys
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from flask import Flask, redirect, url_for
@@ -45,7 +46,19 @@ def _connection_summary_filter(device):
     return format_connection_summary(getattr(device, "connection_type", "") or "", params)
 
 
+def _format_timestamp(epoch_float):
+    """Jinja filter: format epoch timestamp for display."""
+    if epoch_float is None:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(epoch_float, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (TypeError, ValueError, OSError):
+        return str(epoch_float)
+
+
 app.jinja_env.filters["connection_summary"] = _connection_summary_filter
+app.jinja_env.filters["format_timestamp"] = _format_timestamp
 
 app.register_blueprint(dashboard_bp)
 

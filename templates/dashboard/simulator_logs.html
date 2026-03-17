@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Logs: {{ device.name }} | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="d-flex align-items-center">
+      <h1 class="mb-0">Logs: {{ device.name }}</h1>
+      <span class="badge badge-success ml-2 align-middle" id="live-badge" title="Receiving live updates">Live</span>
+    </div>
+    <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-outline-secondary btn-sm">Back to devices</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h4 class="card-title mb-0">Device events (newest first)</h4>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-striped mb-0">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Level</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="log-entries-tbody">
+            {% for log in logs %}
+            <tr data-log-id="{{ log.id }}">
+              <td>{{ log.timestamp | format_timestamp }}</td>
+              <td><code>{{ log.event_type }}</code></td>
+              <td>
+                {% if log.level == 'error' %}
+                  <span class="badge badge-danger">error</span>
+                {% elif log.level == 'warning' %}
+                  <span class="badge badge-warning">warning</span>
+                {% else %}
+                  <span class="badge badge-primary">info</span>
+                {% endif %}
+              </td>
+              <td>{{ log.message }}</td>
+            </tr>
+            {% else %}
+            <tr id="no-logs-row">
+              <td colspan="4" class="text-muted">No log entries yet for this device.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var tbody = document.getElementById('log-entries-tbody');
+      var noLogsRow = document.getElementById('no-logs-row');
+      var liveBadge = document.getElementById('live-badge');
+
+      function formatTime(ts) {
+        if (ts == null) return '';
+        var d = new Date(ts * 1000);
+        return d.toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      }
+
+      function levelBadge(level) {
+        if (level === 'error') return '<span class="badge badge-danger">error</span>';
+        if (level === 'warning') return '<span class="badge badge-warning">warning</span>';
+        return '<span class="badge badge-primary">info</span>';
+      }
+
+      function buildRow(log) {
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-log-id', log.id);
+        tr.innerHTML = '<td>' + (formatTime(log.timestamp) || '') + '</td><td><code>' + (log.event_type || '').replace(/</g, '&lt;') + '</code></td><td>' + levelBadge(log.level || 'info') + '</td><td>' + (log.message || '').replace(/</g, '&lt;') + '</td>';
+        return tr;
+      }
+
+      function replaceWithSnapshot(logs) {
+        if (logs.length === 0) {
+          tbody.innerHTML = '<tr id="no-logs-row"><td colspan="4" class="text-muted">No log entries yet for this device.</td></tr>';
+          return;
+        }
+        noLogsRow && noLogsRow.remove();
+        tbody.innerHTML = '';
+        logs.forEach(function (log) {
+          tbody.appendChild(buildRow(log));
+        });
+      }
+
+      function prependLog(log) {
+        if (noLogsRow) {
+          noLogsRow.remove();
+          noLogsRow = null;
+        }
+        var first = tbody.firstElementChild;
+        tbody.insertBefore(buildRow(log), first);
+      }
+
+      var streamUrl = '{{ url_for("dashboard.device_logs_stream", device_id=device.id) }}';
+      var es = new EventSource(streamUrl);
+
+      es.addEventListener('snapshot', function (e) {
+        try {
+          var logs = JSON.parse(e.data);
+          replaceWithSnapshot(logs);
+        } catch (err) {}
+      });
+
+      es.addEventListener('log', function (e) {
+        try {
+          var log = JSON.parse(e.data);
+          prependLog(log);
+        } catch (err) {}
+      });
+
+      es.onerror = function () {
+        liveBadge.classList.remove('badge-success');
+        liveBadge.classList.add('badge-secondary');
+        liveBadge.textContent = 'Reconnecting…';
+        liveBadge.title = 'Connection lost, reconnecting…';
+      };
+
+      es.onopen = function () {
+        liveBadge.classList.remove('badge-secondary');
+        liveBadge.classList.add('badge-success');
+        liveBadge.textContent = 'Live';
+        liveBadge.title = 'Receiving live updates';
+      };
+    })();
+  </script>
+{% endblock %}

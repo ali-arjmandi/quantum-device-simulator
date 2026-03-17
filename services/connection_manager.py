@@ -13,6 +13,8 @@ from typing import Any
 
 from models.device import Device
 
+from services import device_logs as device_logs_module
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,6 +23,12 @@ def _on_device_thread_exited(device_id: str) -> None:
     with _lock:
         conn = _active.pop(device_id, None)
     if conn is not None:
+        device_logs_module.append_log(
+            device_id,
+            "disconnected",
+            "Connection exited (process killed or error).",
+            level="warning",
+        )
         from services.store import update_device
         update_device(device_id, powered_on=False)
         logger.info("Device %s connection exited; set powered_on=False", device_id)
@@ -145,6 +153,12 @@ def _tcp_watcher_thread(process: multiprocessing.Process, device_id: str) -> Non
     with _lock:
         conn = _active.pop(device_id, None)
     if conn is not None:
+        device_logs_module.append_log(
+            device_id,
+            "disconnected",
+            "Connection exited (process killed or error).",
+            level="warning",
+        )
         from services.store import update_device
         update_device(device_id, powered_on=False)
         logger.info("TCP device %s process ended; set powered_on=False", device_id)
@@ -190,6 +204,9 @@ def start_device(device: Device) -> bool:
                 close_handles=[host_end],
                 connection_type="Serial",
             )
+        device_logs_module.append_log(
+            device.id, "connection_started", "Serial simulator started.", level="info"
+        )
         logger.info("Virtual Serial started for device %s", device.id)
         return True
 
@@ -226,6 +243,12 @@ def start_device(device: Device) -> bool:
             process = None
 
         if process is None or process.exitcode is not None:
+            device_logs_module.append_log(
+                device.id,
+                "error",
+                "Could not start: port in use?",
+                level="error",
+            )
             logger.warning("TCP device %s could not bind to port %s (in use?)", device.id, port)
             return False
 
@@ -245,6 +268,12 @@ def start_device(device: Device) -> bool:
                 connection_type="TCP/IP",
                 tcp_port=port,
             )
+        device_logs_module.append_log(
+            device.id,
+            "connection_started",
+            f"TCP server listening on 127.0.0.1:{port}.",
+            level="info",
+        )
         logger.info(
             "TCP device %s: server running on 127.0.0.1:%s (in subprocess) — connect your client to receive data",
             device.id, port,
@@ -261,6 +290,9 @@ def stop_device(device_id: str) -> None:
         conn = _active.pop(device_id, None)
     if conn is None:
         return
+    device_logs_module.append_log(
+        device_id, "connection_stopped", "Connection stopped.", level="info"
+    )
     if conn.stop_event is not None:
         conn.stop_event.set()
     for h in conn.close_handles:
