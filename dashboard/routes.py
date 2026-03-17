@@ -128,6 +128,12 @@ def edit_device(device_id: str):
             powered_on=powered_on,
             metadata=metadata,
         )
+        device_logs_append(
+            device_id,
+            "device_updated",
+            "Device configuration updated.",
+            level="info",
+        )
         if powered_on:
             updated = get_device(device_id)
             if updated and not manager_start_device(updated):
