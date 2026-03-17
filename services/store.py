@@ -70,4 +70,13 @@ def update_device(device_id: str, **kwargs) -> None:
     _save()
 
 
+def delete_device(device_id: str) -> bool:
+    """Remove a device by id. Returns True if removed, False if not found."""
+    if device_id not in _devices:
+        return False
+    del _devices[device_id]
+    _save()
+    return True
+
+
 _load()

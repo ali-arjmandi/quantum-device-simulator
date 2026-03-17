@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Edit device | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Edit device</h1>
+
+  <div class="row">
+    <div class="col-md-6 col-lg-5">
+      <div class="card">
+        <div class="card-header">
+          <h4 class="card-title mb-0">{{ device.name }}</h4>
+        </div>
+        <div class="card-body">
+          <form action="{{ url_for('dashboard.edit_device', device_id=device.id) }}" method="post">
+            <div class="form-group">
+              <label for="name">Name</label>
+              <input type="text" class="form-control" id="name" name="name" value="{{ device.name }}" placeholder="Device name" required>
+            </div>
+            <div class="form-group">
+              <label for="device_type">Device type</label>
+              <select class="form-control" id="device_type" name="device_type">
+                <option value="sensor" {{ 'selected' if device.device_type == 'sensor' else '' }}>Sensor</option>
+                <option value="actuator" {{ 'selected' if device.device_type == 'actuator' else '' }}>Actuator</option>
+                <option value="satellite payload" {{ 'selected' if device.device_type == 'satellite payload' else '' }}>Satellite payload</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="connection_type">Connection type</label>
+              <select class="form-control" id="connection_type" name="connection_type">
+                <option value="Serial" {{ 'selected' if device.connection_type == 'Serial' else '' }}>Serial</option>
+                <option value="TCP/IP" {{ 'selected' if device.connection_type == 'TCP/IP' else '' }}>TCP/IP</option>
+                <option value="USB" {{ 'selected' if device.connection_type == 'USB' else '' }}>USB</option>
+                <option value="I2C" {{ 'selected' if device.connection_type == 'I2C' else '' }}>I2C</option>
+                <option value="SPI" {{ 'selected' if device.connection_type == 'SPI' else '' }}>SPI</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="powered_on" name="powered_on" value="on" {{ 'checked' if device.powered_on else '' }}>
+                <label class="form-check-label" for="powered_on">Powered on</label>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save changes</button>
+            <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-secondary">Cancel</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

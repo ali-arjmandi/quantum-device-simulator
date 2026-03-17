@@ -6,6 +6,7 @@ from flask import Blueprint, abort, redirect, render_template, request, url_for
 from models.device import Device
 from services.store import (
     add_device as store_add_device,
+    delete_device as store_delete_device,
     get_all_devices,
     get_device,
     update_device,
@@ -52,4 +53,34 @@ def toggle_device(device_id: str):
     if device is None:
         abort(404)
     update_device(device_id, powered_on=not device.powered_on)
+    return redirect(url_for("dashboard.simulator"))
+
+
+@bp.route("/simulator/device/<device_id>/edit", methods=["GET", "POST"])
+def edit_device(device_id: str):
+    """Show edit form (GET) or update device (POST) and redirect to simulator."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        device_type = request.form.get("device_type", "").strip()
+        connection_type = request.form.get("connection_type", "").strip()
+        powered_on = request.form.get("powered_on") == "on"
+        update_device(
+            device_id,
+            name=name or "Unnamed",
+            device_type=device_type or "sensor",
+            connection_type=connection_type or "Serial",
+            powered_on=powered_on,
+        )
+        return redirect(url_for("dashboard.simulator"))
+    return render_template("dashboard/simulator_edit.html", device=device)
+
+
+@bp.route("/simulator/device/<device_id>/delete", methods=["POST"])
+def delete_device(device_id: str):
+    """Delete a device and redirect back to simulator."""
+    if not store_delete_device(device_id):
+        abort(404)
     return redirect(url_for("dashboard.simulator"))
