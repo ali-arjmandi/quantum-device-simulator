@@ -249,34 +249,42 @@ Key modules:
 
 ## 7. Running the project
 
-### 7.1 Prerequisites
+### 7.1 Quick test with Docker (recommended)
 
-- Python 3.11+ (recommended).
-- A Unix-like environment for PTYs (macOS, Linux). On Windows, TCP-based parts work; Serial PTY behavior may differ.
+The easiest way to run the app is with Docker. You do not need to install Python or manage dependencies.
 
-### 7.2 Install dependencies
+**Prerequisite:** [Docker](https://docs.docker.com/get-docker/) and Docker Compose (included with Docker Desktop, or install the compose plugin).
+
+From the project root, run:
+
+```bash
+docker compose up --build
+```
+
+Alternatively: `make docker-run`. On first run this builds the image; later runs start quickly. Open **http://localhost:5555** (or http://127.0.0.1:5555) in your browser. The dashboard is at http://localhost:5555/dashboard/.
+
+To stop the app: press **Ctrl+C** in the terminal. Optionally run `docker compose down` to remove the container. The `data/` directory on your host is mounted into the container, so any devices and connections you create are saved between runs.
+
+### 7.2 Run locally (development)
+
+If you prefer to run without Docker:
+
+**Prerequisites:** Python 3.11+ (or 3.12). A Unix-like environment (macOS, Linux) is recommended for full PTY support; on Windows, TCP-based features work but Serial/PTY behavior may differ.
 
 From the project root:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # On Windows: .venv\\Scripts\\activate
+source .venv/bin/activate        # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+make run
 ```
 
-### 7.3 Run the app
+Or, without make: `FLASK_APP=app flask run`. Then open **http://127.0.0.1:5555/dashboard/** in your browser.
 
-Typical Flask setup (adapt if you already have an entrypoint):
+### 7.3 Port and environment
 
-```bash
-export FLASK_APP=app.py          # or the appropriate factory/module
-export FLASK_ENV=development
-flask run
-```
-
-Then open `http://127.0.0.1:5000/dashboard/` in your browser.
-
-> Note: In your own fork you may already have a different startup script (e.g. `python main.py`); adjust this section accordingly.
+The app listens on port **5555**. You can override the secret key with the `SECRET_KEY` environment variable if needed (e.g. in production).
 
 ---
 
@@ -355,6 +363,6 @@ Ideas for extending the project:
   - `data/devices.json` and `data/connections.json` are git-ignored so local setups don’t conflict.
 - **Ports**
   - Device TCP ports are configured per device in connection parameters.
-  - Flask’s port is controlled by how you run the app (`flask run --port 5000`, etc.).
+  - Flask’s port is controlled by how you run the app (`flask run --port 5555`, etc.).
 
 This documentation should give a reviewer a clear picture of what the project does, how it is structured, and why it is a good fit for real-time experimental control and data acquisition work.
