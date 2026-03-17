@@ -60,27 +60,6 @@ You can point the Connections dashboard at:
   - **Connections client** readers (Serial/TCP) also run in dedicated threads.
   - **Queues** (`queue.Queue` and `multiprocessing.Manager().Queue()`) are used to feed monitor streams; HTTP responses use **SSE** to push updates into the browser.
 
-### 2.2 Architecture diagram
-
-```mermaid
-flowchart LR
-  userBrowser[UserBrowser]
-  dashboard[DashboardRoutes]
-  simulator[DeviceSimulator]
-  connections[ConnectionsService]
-  serialDev[SerialDevice/PTY]
-  tcpDev[TCPDevice]
-
-  userBrowser -->|HTTP + SSE| dashboard
-  dashboard --> simulator
-  dashboard --> connections
-  simulator -->|generate data| serialDev
-  simulator -->|generate data| tcpDev
-  connections -->|read lines| serialDev
-  connections -->|read lines| tcpDev
-  connections -->|push events| dashboard
-```
-
 ---
 
 ## 3. Features
