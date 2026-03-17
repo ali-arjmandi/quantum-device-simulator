@@ -6,6 +6,8 @@ from flask import Flask, redirect, url_for
 
 from config.connection_specs import format_connection_summary
 from dashboard import dashboard_bp
+from services.connection_manager import sync_from_store
+from services.store import get_all_devices
 
 load_dotenv()
 
@@ -24,6 +26,9 @@ def _connection_summary_filter(device):
 app.jinja_env.filters["connection_summary"] = _connection_summary_filter
 
 app.register_blueprint(dashboard_bp)
+
+# Restore virtual connections for devices that were saved as powered on
+sync_from_store(get_all_devices())
 
 
 @app.route("/")

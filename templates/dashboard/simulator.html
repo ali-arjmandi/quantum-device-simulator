@@ -73,7 +73,8 @@
               <div class="connection-details-block border rounded p-3 mb-0 d-none" data-connection-type="TCP/IP">
                 <div class="form-group mb-2">
                   <label for="conn_host">Host</label>
-                  <input type="text" class="form-control" id="conn_host" name="conn_host" placeholder="IP or hostname" value="{{ _t.get('host', '') }}">
+                  <input type="text" class="form-control" id="conn_host" name="conn_host" value="127.0.0.1" readonly>
+                  <small class="form-text text-muted">Simulation uses localhost only.</small>
                 </div>
                 <div class="form-group mb-0">
                   <label for="conn_tcp_port">Port</label>
@@ -108,12 +109,13 @@
                     <th>Device type</th>
                     <th>Connection</th>
                     <th>State</th>
+                    <th>Health</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {% for device in devices %}
-                  <tr>
+                  <tr data-device-id="{{ device.id }}">
                     <td>{{ device.name }}</td>
                     <td>{{ device.device_type }}</td>
                     <td>{{ device | connection_summary }}</td>
@@ -123,6 +125,9 @@
                       {% else %}
                         <span class="badge badge-secondary text-black">Off</span>
                       {% endif %}
+                    </td>
+                    <td class="health-cell">
+                      <span class="health-indicator d-inline-block rounded-circle" style="width:12px;height:12px;background:#ccc;" title="Checking…"></span>
                     </td>
                     <td>
                       <form action="{{ url_for('dashboard.toggle_device', device_id=device.id) }}" method="post" class="d-inline">
@@ -163,6 +168,46 @@
       }
       connectionType.addEventListener('change', updateVisibility);
       updateVisibility();
+
+      function updateHealthIndicators() {
+        var rows = document.querySelectorAll('tr[data-device-id]');
+        if (rows.length === 0) return;
+        fetch('{{ url_for("dashboard.all_devices_health") }}')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            rows.forEach(function (row) {
+              var deviceId = row.getAttribute('data-device-id');
+              var el = row.querySelector('.health-indicator');
+              if (!el) return;
+              var health = data[deviceId];
+              if (!health) {
+                el.style.background = '#ccc';
+                el.title = 'Unknown';
+                return;
+              }
+              var status = health.status || 'unknown';
+              var msg = health.message || '';
+              if (status === 'healthy') {
+                el.style.background = '#28a745';
+                el.title = msg;
+              } else if (status === 'unhealthy') {
+                el.style.background = '#dc3545';
+                el.title = msg;
+              } else {
+                el.style.background = '#6c757d';
+                el.title = msg;
+              }
+            });
+          })
+          .catch(function () {
+            rows.forEach(function (row) {
+              var el = row.querySelector('.health-indicator');
+              if (el) { el.style.background = '#ccc'; el.title = 'Check failed'; }
+            });
+          });
+      }
+      updateHealthIndicators();
+      setInterval(updateHealthIndicators, 2000);
     })();
   </script>
 {% endblock %}

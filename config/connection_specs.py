@@ -111,9 +111,8 @@ def generate_sample_connection_params(connection_type: str) -> dict[str, Any]:
             "parity": random.choice(["", "Even", "Odd"]),
         }
     if connection_type == "TCP/IP":
-        octet = lambda: random.randint(1, 254)
         return {
-            "host": f"192.168.{octet()}.{octet()}",
+            "host": "127.0.0.1",
             "port": random.randint(1024, 65535),
         }
     return {}
@@ -147,9 +146,8 @@ def format_connection_summary(connection_type: str, connection_params: dict[str,
             return f"{port} @ {baud}"
         return port or "—"
     if connection_type == "TCP/IP":
-        host = connection_params.get("host") or ""
         port = connection_params.get("port")
-        if host and port is not None:
-            return f"{host}:{port}"
-        return host or "—"
+        if port is not None:
+            return f"127.0.0.1:{port}"
+        return "—"
     return "—"

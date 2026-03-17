@@ -1,7 +1,7 @@
 """Dashboard blueprint and routes."""
 import uuid
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 
 from config.connection_specs import (
     get_all_sample_connection_params,
@@ -9,6 +9,11 @@ from config.connection_specs import (
     validate_connection_params,
 )
 from models.device import Device
+from services.connection_manager import (
+    check_device_health,
+    start_device as manager_start_device,
+    stop_device as manager_stop_device,
+)
 from services.store import (
     add_device as store_add_device,
     delete_device as store_delete_device,
@@ -46,6 +51,8 @@ def add_device():
     connection_type = request.form.get("connection_type", "").strip() or "Serial"
     powered_on = request.form.get("powered_on") == "on"
     connection_params = parse_connection_params(connection_type, request.form)
+    if connection_type == "TCP/IP":
+        connection_params["host"] = "127.0.0.1"
     errors = validate_connection_params(connection_type, connection_params)
     if errors:
         for msg in errors:
@@ -61,6 +68,8 @@ def add_device():
         metadata=metadata,
     )
     store_add_device(device)
+    if powered_on:
+        manager_start_device(device)
     return redirect(url_for("dashboard.simulator"))
 
 
@@ -70,7 +79,14 @@ def toggle_device(device_id: str):
     device = get_device(device_id)
     if device is None:
         abort(404)
-    update_device(device_id, powered_on=not device.powered_on)
+    new_powered_on = not device.powered_on
+    update_device(device_id, powered_on=new_powered_on)
+    if new_powered_on:
+        updated = get_device(device_id)
+        if updated:
+            manager_start_device(updated)
+    else:
+        manager_stop_device(device_id)
     return redirect(url_for("dashboard.simulator"))
 
 
@@ -86,6 +102,8 @@ def edit_device(device_id: str):
         connection_type = request.form.get("connection_type", "").strip() or "Serial"
         powered_on = request.form.get("powered_on") == "on"
         connection_params = parse_connection_params(connection_type, request.form)
+        if connection_type == "TCP/IP":
+            connection_params["host"] = "127.0.0.1"
         errors = validate_connection_params(connection_type, connection_params)
         if errors:
             for msg in errors:
@@ -101,13 +119,40 @@ def edit_device(device_id: str):
             powered_on=powered_on,
             metadata=metadata,
         )
+        if powered_on:
+            updated = get_device(device_id)
+            if updated:
+                manager_start_device(updated)
+        else:
+            manager_stop_device(device_id)
         return redirect(url_for("dashboard.simulator"))
     return render_template("dashboard/simulator_edit.html", device=device)
+
+
+@bp.route("/simulator/device/<device_id>/health", methods=["GET"])
+def device_health(device_id: str):
+    """Return device health status as JSON (for health checker)."""
+    device = get_device(device_id)
+    if device is None:
+        return jsonify({"status": "unknown", "message": "Device not found"}), 404
+    result = check_device_health(device_id, device.powered_on)
+    return jsonify(result)
+
+
+@bp.route("/simulator/health", methods=["GET"])
+def all_devices_health():
+    """Return health status for all devices as JSON (for polling)."""
+    devices = get_all_devices()
+    result = {}
+    for device in devices:
+        result[device.id] = check_device_health(device.id, device.powered_on)
+    return jsonify(result)
 
 
 @bp.route("/simulator/device/<device_id>/delete", methods=["POST"])
 def delete_device(device_id: str):
     """Delete a device and redirect back to simulator."""
+    manager_stop_device(device_id)
     if not store_delete_device(device_id):
         abort(404)
     return redirect(url_for("dashboard.simulator"))
