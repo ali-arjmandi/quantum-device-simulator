@@ -21,8 +21,35 @@
     .documentation-content h3 { font-size: 1.1rem; margin-top: 0.75rem; margin-bottom: 0.5rem; }
     .documentation-content ul, .documentation-content ol { padding-left: 1.5rem; margin-bottom: 0.75rem; }
     .documentation-content p { margin-bottom: 0.75rem; }
-    .documentation-content code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 3px; font-size: 0.9em; }
-    .documentation-content pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; margin-bottom: 0.75rem; }
-    .documentation-content pre code { background: none; padding: 0; }
+
+    /* Inline code */
+    .documentation-content code {
+      background: #444 !important;
+      color: #f8f9fa !important;
+      padding: 0.15rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.9em;
+    }
+
+    /* Fenced code blocks (including diagrams) */
+    .documentation-content pre,
+    .documentation-content pre code,
+    .documentation-content .codehilite,
+    .documentation-content .codehilite pre,
+    .documentation-content .codehilite code {
+      background: #333 !important;
+      color: #f8f9fa !important;
+    }
+
+    .documentation-content pre {
+      padding: 1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin-bottom: 0.75rem;
+    }
+
+    .documentation-content pre code {
+      padding: 0;
+    }
   </style>
 {% endblock %}
