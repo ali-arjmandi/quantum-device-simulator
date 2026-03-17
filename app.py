@@ -14,8 +14,10 @@ from services.store import get_all_devices
 
 load_dotenv()
 
-# Disable reloader by default to avoid termios.error in non-TTY terminals (e.g. Cursor).
-# Override with: FLASK_RUN_RELOAD=1 flask run
+os.environ.setdefault("FLASK_APP", "app")
+os.environ.setdefault("FLASK_RUN_HOST", "0.0.0.0")
+os.environ.setdefault("FLASK_RUN_PORT", "5555")
+
 if "FLASK_RUN_RELOAD" not in os.environ:
     os.environ["FLASK_RUN_RELOAD"] = "0"
 
