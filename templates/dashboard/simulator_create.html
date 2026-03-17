@@ -8,10 +8,6 @@
   <div class="row">
     <div class="col-md-6 col-lg-5">
       <div class="card">
-        <div class="card-header d-flex align-items-center justify-content-between">
-          <h4 class="card-title mb-0">New device</h4>
-          <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-outline-secondary btn-sm">Back to devices</a>
-        </div>
         <div class="card-body">
           <form action="{{ url_for('dashboard.add_device') }}" method="post">
             <div class="form-group">
