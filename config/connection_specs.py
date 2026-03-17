@@ -2,7 +2,9 @@
 
 Builds and validates device.metadata["connection_params"] from request.form
 for each connection type (Serial, TCP/IP, USB, I2C, SPI).
+Provides random valid sample params for the create-device form.
 """
+import random
 from typing import Any
 
 # Connection type values as used in forms and Device.connection_type
@@ -124,3 +126,62 @@ def validate_connection_params(connection_type: str, params: dict[str, Any]) -> 
         if mode is not None and (not isinstance(mode, int) or mode < 0 or mode > 3):
             errors.append("SPI mode must be 0, 1, 2, or 3")
     return errors
+
+
+def generate_sample_connection_params(connection_type: str) -> dict[str, Any]:
+    """Generate random but valid connection_params for the given type.
+
+    Used to pre-fill the create-device form so users see valid example values.
+    All values conform to validate_connection_params for that type.
+    """
+    if connection_type == "Serial":
+        return {
+            "port": random.choice(["COM3", "COM4", "/dev/ttyUSB0", "/dev/ttyS0"]),
+            "baud_rate": random.choice([9600, 19200, 38400, 57600, 115200]),
+            "data_bits": random.choice([7, 8]),
+            "stop_bits": random.choice([1, 2]),
+            "parity": random.choice(["", "Even", "Odd"]),
+        }
+    if connection_type == "TCP/IP":
+        octet = lambda: random.randint(1, 254)
+        return {
+            "host": f"192.168.{octet()}.{octet()}",
+            "port": random.randint(1024, 65535),
+        }
+    if connection_type == "USB":
+        vid = random.randint(0x0403, 0xFFFF)
+        pid = random.randint(0x6001, 0xFFFF)
+        return {
+            "vendor_id": f"0x{vid:04X}",
+            "product_id": f"0x{pid:04X}",
+            "bus": f"{random.randint(1, 8):03d}",
+            "device_path": f"/dev/bus/usb/{random.randint(1, 8):03d}/{random.randint(1, 128):03d}",
+            "serial_number": f"SN{random.randint(10000, 99999)}",
+        }
+    if connection_type == "I2C":
+        return {
+            "bus": random.randint(0, 1),
+            "device_address": random.randint(0x03, 0x77),
+        }
+    if connection_type == "SPI":
+        return {
+            "bus": str(random.randint(0, 1)),
+            "chip_select": str(random.randint(0, 2)),
+            "mode": random.randint(0, 3),
+            "max_speed": random.choice([500000, 1000000, 2000000, 4000000]),
+            "bit_order": random.choice(["msb", "lsb"]),
+        }
+    return {}
+
+
+def get_all_sample_connection_params() -> dict[str, dict[str, Any]]:
+    """Return random valid connection_params for every connection type.
+
+    Keys are connection type names (e.g. 'Serial', 'TCP/IP'). Values are
+    connection_params dicts suitable for form pre-fill and pass
+    validate_connection_params.
+    """
+    return {
+        conn_type: generate_sample_connection_params(conn_type)
+        for conn_type in CONNECTION_TYPES
+    }

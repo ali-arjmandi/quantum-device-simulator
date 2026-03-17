@@ -3,7 +3,11 @@ import uuid
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
-from config.connection_specs import parse_connection_params, validate_connection_params
+from config.connection_specs import (
+    get_all_sample_connection_params,
+    parse_connection_params,
+    validate_connection_params,
+)
 from models.device import Device
 from services.store import (
     add_device as store_add_device,
@@ -26,7 +30,12 @@ def index():
 def simulator():
     """Device simulator (admin) page with device list."""
     devices = get_all_devices()
-    return render_template("dashboard/simulator.html", devices=devices)
+    sample_params_by_type = get_all_sample_connection_params()
+    return render_template(
+        "dashboard/simulator.html",
+        devices=devices,
+        sample_params_by_type=sample_params_by_type,
+    )
 
 
 @bp.route("/simulator/device/add", methods=["POST"])
