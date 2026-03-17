@@ -1,5 +1,6 @@
 """Dashboard blueprint and routes."""
 import json
+import queue
 import time
 import uuid
 from dataclasses import asdict
@@ -14,8 +15,11 @@ from config.connection_specs import (
 from models.device import Device
 from services.connection_manager import (
     check_device_health,
+    get_last_payload,
+    get_or_create_monitor_queue,
     start_device as manager_start_device,
     stop_device as manager_stop_device,
+    unregister_monitor_queue,
     update_simulator_config_shared,
 )
 from services.device_logs import append_log as device_logs_append, get_logs as get_device_logs
@@ -271,6 +275,69 @@ def device_logs_stream(device_id: str):
     after = request.args.get("after", type=float)
     return Response(
         stream_with_context(_logs_stream_generator(device_id, after)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _monitor_stream_generator(device_id: str):
+    """Yield SSE events: optional initial snapshot, then each new payload from the queue.
+    Sends a data-event heartbeat every 15s when idle so proxies don't close the connection.
+    """
+    initial = get_last_payload(device_id)
+    if initial is not None:
+        try:
+            yield f"data: {json.dumps(initial, default=str)}\n\n"
+        except Exception:
+            pass
+    monitor_queue = get_or_create_monitor_queue(device_id)
+    try:
+        yield f"data: {json.dumps({'status': 'connected'})}\n\n"
+        heartbeat_interval = 15
+        while True:
+            try:
+                data = monitor_queue.get(timeout=heartbeat_interval)
+                try:
+                    yield f"data: {json.dumps(data, default=str)}\n\n"
+                except Exception:
+                    pass
+            except queue.Empty:
+                try:
+                    yield f"data: {json.dumps({'heartbeat': True})}\n\n"
+                except Exception:
+                    pass
+            except GeneratorExit:
+                raise
+            except Exception:
+                try:
+                    yield f"data: {json.dumps({'heartbeat': True})}\n\n"
+                except Exception:
+                    pass
+    finally:
+        unregister_monitor_queue(device_id, monitor_queue)
+
+
+@bp.route("/simulator/device/<device_id>/monitor")
+def device_monitor_page(device_id: str):
+    """Monitor page: show live payload stream for the device."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    return render_template("dashboard/simulator_monitor.html", device=device)
+
+
+@bp.route("/simulator/device/<device_id>/monitor/stream")
+def device_monitor_stream(device_id: str):
+    """Server-Sent Events stream of generated payloads (real-time)."""
+    device = get_device(device_id)
+    if device is None:
+        abort(404)
+    return Response(
+        stream_with_context(_monitor_stream_generator(device_id)),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

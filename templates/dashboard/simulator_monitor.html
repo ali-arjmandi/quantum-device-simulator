@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Monitor: {{ device.name }} | Quantum Device Simulator{% endblock %}
+
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="d-flex align-items-center">
+      <h1 class="mb-0">Monitor: {{ device.name }}</h1>
+      <span class="badge badge-secondary ml-2 align-middle" id="live-badge" title="Connecting…">Connecting…</span>
+    </div>
+    <a href="{{ url_for('dashboard.simulator') }}" class="btn btn-outline-secondary btn-sm">Back to devices</a>
+  </div>
+
+  {% set sim_config = (device.metadata or {}).get('simulator_config', {}) %}
+  <div class="mb-3 d-flex flex-wrap align-items-center gap-3">
+    <span class="text-muted small">Simulator:</span>
+    <div class="d-flex flex-wrap gap-3 align-items-center" role="group" aria-label="Simulator options">
+      <label class="mb-0 small d-flex align-items-center">
+        <input type="checkbox" id="monitor-option-noise" class="simulator-option" data-option="noise" {{ 'checked' if sim_config.get('noise') else '' }} {{ 'disabled' if not device.powered_on else '' }} title="{{ 'Noise' if device.powered_on else 'Power on to change' }}">
+        <span class="ms-1">Noise</span>
+      </label>
+      <label class="mb-0 small d-flex align-items-center">
+        <input type="checkbox" id="monitor-option-drift" class="simulator-option" data-option="drift" {{ 'checked' if sim_config.get('drift') else '' }} {{ 'disabled' if not device.powered_on else '' }} title="{{ 'Drift' if device.powered_on else 'Power on to change' }}">
+        <span class="ms-1">Drift</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h4 class="card-title mb-0">Generated data (real-time)</h4>
+    </div>
+    <div class="card-body">
+      <div id="no-data-msg" class="text-muted">No data yet. Power on the device to see generated data.</div>
+      <div id="monitor-content" style="display: none;">
+        <div class="form-group">
+          <label class="font-weight-bold">Payload</label>
+          <pre id="monitor-payload" class="bg-light text-dark p-2 rounded small mb-3" style="max-height: 200px; overflow: auto;"></pre>
+        </div>
+        <div class="form-group">
+          <label class="font-weight-bold">Serial line</label>
+          <code id="monitor-serial" class="d-block bg-light p-2 rounded small"></code>
+        </div>
+        <div class="form-group">
+          <label class="font-weight-bold">TCP line</label>
+          <code id="monitor-tcp" class="d-block bg-light p-2 rounded small" style="word-break: break-all;"></code>
+        </div>
+        <div class="form-group mb-0">
+          <label class="font-weight-bold">Updated at</label>
+          <span id="monitor-ts" class="text-muted"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var noDataMsg = document.getElementById('no-data-msg');
+      var monitorContent = document.getElementById('monitor-content');
+      var payloadEl = document.getElementById('monitor-payload');
+      var serialEl = document.getElementById('monitor-serial');
+      var tcpEl = document.getElementById('monitor-tcp');
+      var tsEl = document.getElementById('monitor-ts');
+      var liveBadge = document.getElementById('live-badge');
+
+      function formatTs(ts) {
+        if (ts == null) return '';
+        var d = new Date(ts * 1000);
+        var ms = (ts % 1 * 1000).toFixed(0);
+        return d.toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + '.' + ms;
+      }
+
+      function updateUI(data) {
+        if (!data) return;
+        noDataMsg.style.display = 'none';
+        monitorContent.style.display = 'block';
+        if (data.payload != null) {
+          payloadEl.textContent = JSON.stringify(data.payload, null, 2);
+        }
+        serialEl.textContent = data.serial_line != null ? String(data.serial_line) : '';
+        tcpEl.textContent = data.tcp_line != null ? String(data.tcp_line) : '';
+        tsEl.textContent = formatTs(data.ts);
+      }
+
+      var streamUrl = '{{ url_for("dashboard.device_monitor_stream", device_id=device.id) }}';
+      var reconnectScheduled = false;
+
+      function connect() {
+        reconnectScheduled = false;
+        var es = new EventSource(streamUrl);
+        es.onmessage = function (e) {
+          try {
+            var data = JSON.parse(e.data);
+            if (data && data.status === 'connected') {
+              noDataMsg.textContent = 'Connected. Waiting for data…';
+              noDataMsg.style.display = 'block';
+              return;
+            }
+            if (data && data.heartbeat) {
+              return;
+            }
+            if (data && data.payload != null) {
+              updateUI(data);
+            }
+          } catch (err) {}
+        };
+        es.onerror = function () {
+          es.close();
+          liveBadge.classList.remove('badge-success');
+          liveBadge.classList.add('badge-secondary');
+          liveBadge.textContent = 'Reconnecting…';
+          liveBadge.title = 'Connection lost, reconnecting…';
+          if (!reconnectScheduled) {
+            reconnectScheduled = true;
+            setTimeout(connect, 2000);
+          }
+        };
+        es.onopen = function () {
+          liveBadge.classList.remove('badge-secondary');
+          liveBadge.classList.add('badge-success');
+          liveBadge.textContent = 'Live';
+          liveBadge.title = 'Receiving live updates';
+        };
+      }
+      connect();
+
+      var simulatorConfigUrl = '{{ url_for("dashboard.patch_simulator_config", device_id=device.id) }}';
+      var noiseEl = document.getElementById('monitor-option-noise');
+      var driftEl = document.getElementById('monitor-option-drift');
+      if (noiseEl && driftEl) {
+        function onSimulatorOptionChange(e) {
+          var target = e.target;
+          var noise = noiseEl.checked;
+          var drift = driftEl.checked;
+          fetch(simulatorConfigUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ noise: noise, drift: drift })
+          })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (d) { throw new Error(d.message || 'Failed'); });
+            })
+            .catch(function (err) {
+              target.checked = !target.checked;
+              alert('Could not save simulator options: ' + (err.message || 'Unknown error'));
+            });
+        }
+        noiseEl.addEventListener('change', onSimulatorOptionChange);
+        driftEl.addEventListener('change', onSimulatorOptionChange);
+      }
+    })();
+  </script>
+{% endblock %}
