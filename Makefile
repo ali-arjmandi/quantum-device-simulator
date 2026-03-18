@@ -7,7 +7,7 @@ docker-run:
 	docker compose up --build
 
 gunicorn:
-	gunicorn -b 0.0.0.0:5555 app:app
+	gunicorn -k gthread -w 1 --threads 8 -b 0.0.0.0:5555 --timeout 120 app:app
 
 create-requirements:
 	pip freeze > requirements.txt
