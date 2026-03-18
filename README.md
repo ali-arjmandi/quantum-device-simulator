@@ -1,6 +1,6 @@
 # Quantum Device Simulator
 
-**Version 1.0.0**
+**Version 1.0.1**
 
 Modern control and data-acquisition demo designed to look like the software stack around a quantum hardware experiment.
 
@@ -270,7 +270,7 @@ To stop the app: press **Ctrl+C** in the terminal. Optionally run `docker compos
 **Run with a pre-built image (no clone required):** If a Docker image is published (e.g. on Docker Hub or GitHub Container Registry), you can run the app without cloning the repo:
 
 ```bash
-docker run -p 5555:5555 -v ./data:/app/data YOUR_IMAGE_NAME:1.0.0
+docker run -p 5555:5555 -v ./data:/app/data YOUR_IMAGE_NAME:1.0.1
 ```
 
 Replace `YOUR_IMAGE_NAME` with the full image name (e.g. `ghcr.io/yourusername/quantum-device-simulator` or `yourusername/quantum-device-simulator`). Then open **http://localhost:5555**.
@@ -303,14 +303,14 @@ To build and push a release image so others can run it with `docker pull`:
 1. **Build and tag** (replace `YOUR_IMAGE_NAME` with your Docker Hub or GHCR repo, e.g. `ghcr.io/username/quantum-device-simulator` or `username/quantum-device-simulator`):
 
    ```bash
-   docker build -t YOUR_IMAGE_NAME:1.0.0 .
-   docker tag YOUR_IMAGE_NAME:1.0.0 YOUR_IMAGE_NAME:latest
+   docker build -t YOUR_IMAGE_NAME:1.0.1 .
+   docker tag YOUR_IMAGE_NAME:1.0.1 YOUR_IMAGE_NAME:latest
    ```
 
 2. **Push** (log in first: `docker login` for Docker Hub, or `docker login ghcr.io` for GitHub Container Registry):
 
    ```bash
-   docker push YOUR_IMAGE_NAME:1.0.0
+   docker push YOUR_IMAGE_NAME:1.0.1
    docker push YOUR_IMAGE_NAME:latest
    ```
 
