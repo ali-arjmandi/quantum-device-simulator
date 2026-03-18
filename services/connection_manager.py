@@ -3,9 +3,11 @@
 When a device is turned on, opens a virtual connection and runs a simulator thread.
 TCP devices run in a separate process so killing the process on the port does not stop the Flask app.
 """
+
 import logging
 import multiprocessing
 import os
+import signal
 import pty
 import queue
 import socket
@@ -40,12 +42,16 @@ def _get_simulator_config_shared() -> dict:
         _simulator_config_manager = multiprocessing.Manager()
         _simulator_config_shared = _simulator_config_manager.dict()
         _monitor_queue = _simulator_config_manager.Queue()
-        _monitor_dispatcher_thread = threading.Thread(target=_monitor_dispatcher_loop, daemon=True)
+        _monitor_dispatcher_thread = threading.Thread(
+            target=_monitor_dispatcher_loop, daemon=True
+        )
         _monitor_dispatcher_thread.start()
     return _simulator_config_shared
 
 
-def update_simulator_config_shared(device_id: str, device_type: str, simulator_config: dict) -> None:
+def update_simulator_config_shared(
+    device_id: str, device_type: str, simulator_config: dict
+) -> None:
     """Update shared config for a TCP device so the subprocess sees changes in real time."""
     shared = _simulator_config_shared
     if shared is not None and device_id in shared:
@@ -80,7 +86,11 @@ def get_or_create_monitor_queue(device_id: str) -> queue.Queue:
         qu = queue.Queue()
         _monitor_subscribers.setdefault(device_id, []).append(qu)
         has_subscribers = len(_monitor_subscribers[device_id]) >= 1
-    if has_subscribers and _simulator_config_shared is not None and device_id in _simulator_config_shared:
+    if (
+        has_subscribers
+        and _simulator_config_shared is not None
+        and device_id in _simulator_config_shared
+    ):
         cfg = dict(_simulator_config_shared.get(device_id, {}))
         cfg["monitor_active"] = True
         _simulator_config_shared[device_id] = cfg
@@ -97,7 +107,11 @@ def unregister_monitor_queue(device_id: str, q: queue.Queue) -> None:
         if no_subscribers_left:
             _monitor_subscribers.pop(device_id, None)
             _last_payload.pop(device_id, None)
-    if no_subscribers_left and _simulator_config_shared is not None and device_id in _simulator_config_shared:
+    if (
+        no_subscribers_left
+        and _simulator_config_shared is not None
+        and device_id in _simulator_config_shared
+    ):
         cfg = dict(_simulator_config_shared.get(device_id, {}))
         cfg["monitor_active"] = False
         _simulator_config_shared[device_id] = cfg
@@ -127,7 +141,9 @@ def _on_device_thread_exited(device_id: str, reason: str | None = None) -> None:
             level="warning",
         )
         from services.store import update_device
+
         update_device(device_id, powered_on=False)
+
 
 _active: dict[str, "_ActiveConnection"] = {}
 _lock = threading.Lock()
@@ -178,11 +194,14 @@ class _ActiveConnection:
         self.serial_path = serial_path  # for Serial PTY health/log messages
 
 
-def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_id: str) -> None:
+def _serial_simulator_loop(
+    master_fd: int, stop_event: threading.Event, device_id: str
+) -> None:
     """Device side of virtual serial over PTY: send type-based data until stop.
     Reads device from store each tick so simulator options (noise, drift) apply in real time.
     """
     from services.store import get_device
+
     exit_reason: str | None = None
     last_write_ok = True
     try:
@@ -213,7 +232,12 @@ def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_i
                     subs = _monitor_subscribers.get(device_id, [])
                 if subs:
                     tcp_line = device_data_module.format_tcp(payload)
-                    data = {"payload": payload, "serial_line": line, "tcp_line": tcp_line, "ts": time.time()}
+                    data = {
+                        "payload": payload,
+                        "serial_line": line,
+                        "tcp_line": tcp_line,
+                        "ts": time.time(),
+                    }
                     with _monitor_lock:
                         _last_payload[device_id] = data
                         for q in _monitor_subscribers.get(device_id, []):
@@ -240,11 +264,16 @@ def _serial_simulator_loop(master_fd: int, stop_event: threading.Event, device_i
         _on_device_thread_exited(device_id, reason=exit_reason)
 
 
-def _tcp_server_subprocess_target(port: int, device_id: str, shared_config: dict, monitor_queue: Any = None) -> None:
+def _tcp_server_subprocess_target(
+    port: int, device_id: str, shared_config: dict, monitor_queue: Any = None
+) -> None:
     """Run in a subprocess: bind to 127.0.0.1:port and serve clients until process is killed.
     Reads shared_config each tick; only puts monitor data when monitor_active is True.
     """
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
     from services import device_data as device_data_module
+
     bind_host = "127.0.0.1"
     listener = None
     try:
@@ -280,7 +309,12 @@ def _tcp_server_subprocess_target(port: int, device_id: str, shared_config: dict
                     client.sendall(line.encode("utf-8"))
                     if monitor_queue is not None and cfg.get("monitor_active"):
                         serial_line = device_data_module.format_serial(payload)
-                        data = {"payload": payload, "serial_line": serial_line, "tcp_line": line, "ts": time.time()}
+                        data = {
+                            "payload": payload,
+                            "serial_line": serial_line,
+                            "tcp_line": line,
+                            "ts": time.time(),
+                        }
                         try:
                             monitor_queue.put((device_id, data))
                         except Exception:
@@ -304,7 +338,12 @@ def _tcp_server_subprocess_target(port: int, device_id: str, shared_config: dict
                 )
                 serial_line = device_data_module.format_serial(payload)
                 tcp_line = device_data_module.format_tcp(payload)
-                data = {"payload": payload, "serial_line": serial_line, "tcp_line": tcp_line, "ts": time.time()}
+                data = {
+                    "payload": payload,
+                    "serial_line": serial_line,
+                    "tcp_line": tcp_line,
+                    "ts": time.time(),
+                }
                 try:
                     monitor_queue.put((device_id, data))
                 except Exception:
@@ -327,7 +366,9 @@ def _tcp_watcher_thread(process: multiprocessing.Process, device_id: str) -> Non
         msg = "Connection exited (process killed or error)."
         if code is not None and code != 0:
             msg = f"Connection exited: process ended with code {code} (e.g. killed or crash)."
-            logger.warning("TCP device %s process ended with exit code %s", device_id, code)
+            logger.warning(
+                "TCP device %s process ended with exit code %s", device_id, code
+            )
         else:
             logger.info("TCP device %s process ended; set powered_on=False", device_id)
         device_logs_module.append_log(
@@ -337,6 +378,7 @@ def _tcp_watcher_thread(process: multiprocessing.Process, device_id: str) -> Non
             level="warning",
         )
         from services.store import update_device
+
         update_device(device_id, powered_on=False)
 
 
@@ -417,7 +459,9 @@ def start_device(device: Device) -> bool:
         shared_config = _get_simulator_config_shared()
         shared_config[device.id] = {
             "device_type": getattr(device, "device_type", "") or "sensor",
-            "simulator_config": (getattr(device, "metadata", None) or {}).get("simulator_config", {}),
+            "simulator_config": (getattr(device, "metadata", None) or {}).get(
+                "simulator_config", {}
+            ),
             "monitor_active": False,
         }
         process: multiprocessing.Process | None = None
@@ -432,7 +476,11 @@ def start_device(device: Device) -> bool:
             if process.exitcode is None:
                 break
             if process.exitcode == 1:
-                logger.warning("TCP device %s could not bind to port %s, trying to free port", device.id, port)
+                logger.warning(
+                    "TCP device %s could not bind to port %s, trying to free port",
+                    device.id,
+                    port,
+                )
                 _kill_processes_on_port(port)
                 time.sleep(1.0)
             process = None
@@ -444,7 +492,9 @@ def start_device(device: Device) -> bool:
                 "Could not start: port in use?",
                 level="error",
             )
-            logger.warning("TCP device %s could not bind to port %s (in use?)", device.id, port)
+            logger.warning(
+                "TCP device %s could not bind to port %s (in use?)", device.id, port
+            )
             return False
 
         watcher = threading.Thread(
@@ -471,11 +521,14 @@ def start_device(device: Device) -> bool:
         )
         logger.info(
             "TCP device %s: server running on 127.0.0.1:%s (in subprocess) — connect your client to receive data",
-            device.id, port,
+            device.id,
+            port,
         )
         return True
 
-    logger.warning("Unknown connection_type %r for device %s", connection_type, device.id)
+    logger.warning(
+        "Unknown connection_type %r for device %s", connection_type, device.id
+    )
     return False
 
 
@@ -540,7 +593,10 @@ def check_device_health(device_id: str, powered_on: bool) -> dict:
         conn = _active.get(device_id)
 
     if conn is None:
-        return {"status": "unhealthy", "message": "Device is on but connection not active"}
+        return {
+            "status": "unhealthy",
+            "message": "Device is on but connection not active",
+        }
 
     if conn.connection_type == "Serial":
         if conn.thread.is_alive():

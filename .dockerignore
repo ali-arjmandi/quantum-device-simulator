@@ -12,3 +12,6 @@ __pycache__
 .cursor
 .DS_Store
 *.plan.md
+
+# Runtime state; use volume at run time (do not bake local devices.json into image)
+data/
